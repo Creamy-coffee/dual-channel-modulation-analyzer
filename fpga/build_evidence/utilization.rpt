@@ -1,0 +1,94 @@
+Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2018.3 (win64) Build 2405991 Thu Dec  6 23:38:27 MST 2018
+| Date         : Thu Oct 29 14:06:24 2026
+| Host         : LAPTOP-K2SKPF0L running 64-bit major release  (build 9200)
+| Command      : report_utilization -hierarchical -file D:/FPGA_bag/Project/signal_analyzer_base_v1/firmware/experimental/harmonic_rounding_20261029/reports/a222905e5799/utilization.rpt
+| Design       : daq_top
+| Device       : 7a35tfgg484-2
+| Design State : Routed
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++----------------------------------+---------------------------------------+------------+------------+---------+------+-------+--------+--------+--------------+
+|             Instance             |                 Module                | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs  | RAMB36 | RAMB18 | DSP48 Blocks |
++----------------------------------+---------------------------------------+------------+------------+---------+------+-------+--------+--------+--------------+
+| daq_top                          |                                 (top) |      20294 |      20238 |      56 |    0 | 13111 |     32 |      8 |           80 |
+|   (daq_top)                      |                                 (top) |        167 |        167 |       0 |    0 |   113 |      0 |      4 |            0 |
+|   adc_capture                    |                        ad9238_capture |        227 |        227 |       0 |    0 |    66 |      0 |      0 |            0 |
+|   clocks                         |                  clocking_sys_7series |          1 |          1 |       0 |    0 |     0 |      0 |      0 |            0 |
+|   controls                       |                        basic_controls |        105 |        105 |       0 |    0 |   128 |      0 |      0 |            0 |
+|   g_ddc.u_ddc_cic                |                     ddc_cic_decimator |         55 |         55 |       0 |    0 |    58 |      0 |      0 |           12 |
+|   g_ddc.u_ddc_fir                |                     ddc_fir_decimator |        283 |        283 |       0 |    0 |    85 |      0 |      1 |            2 |
+|   g_ddc.u_ddc_nco                |                         ddc_nco_mixer |         82 |         82 |       0 |    0 |    68 |      0 |      0 |            2 |
+|   g_ddc.u_iq_tx                  |                    analysis_stream_tx |        248 |        248 |       0 |    0 |   263 |      2 |      0 |            0 |
+|     (g_ddc.u_iq_tx)              |                    analysis_stream_tx |        106 |        106 |       0 |    0 |   240 |      2 |      0 |            0 |
+|     u_uart                       |                           uart_tx_v32 |        142 |        142 |       0 |    0 |    23 |      0 |      0 |            0 |
+|   g_ddc.u_selected_analysis      |                 analysis_polar_stream |        729 |        729 |       0 |    0 |   159 |      0 |      0 |            0 |
+|     (g_ddc.u_selected_analysis)  |                 analysis_polar_stream |          0 |          0 |       0 |    0 |    18 |      0 |      0 |            0 |
+|     polar                        |                    ai_iq_polar_cordic |        729 |        729 |       0 |    0 |   141 |      0 |      0 |            0 |
+|   g_fft_find.u_fft_find          |                         fft_find_ctrl |       6138 |       6138 |       0 |    0 |  3590 |     26 |      0 |           46 |
+|     (g_fft_find.u_fft_find)      |                         fft_find_ctrl |        651 |        651 |       0 |    0 |   409 |      0 |      0 |            0 |
+|     multirate.u_front            |                multirate_fft_frontend |       5071 |       5071 |       0 |    0 |  2979 |     26 |      0 |           46 |
+|       (multirate.u_front)        |                multirate_fft_frontend |        108 |        108 |       0 |    0 |   147 |      0 |      0 |            0 |
+|       banks[0].active.u_bank     |                      fft_capture_bank |        185 |        185 |       0 |    0 |   151 |      3 |      0 |            0 |
+|       banks[1].active.u_bank     |                    fft_capture_bank_4 |        262 |        262 |       0 |    0 |   151 |      3 |      0 |            0 |
+|       banks[2].active.u_bank     |                    fft_capture_bank_5 |        291 |        291 |       0 |    0 |   151 |      3 |      0 |            0 |
+|       banks[3].active.u_bank     |                    fft_capture_bank_6 |        252 |        252 |       0 |    0 |   151 |      3 |      0 |            0 |
+|       banks[4].active.u_bank     |                    fft_capture_bank_7 |        298 |        298 |       0 |    0 |   151 |      3 |      0 |            0 |
+|       filters[1].active.u_filter |                     cic3_decimate_2ch |        412 |        412 |       0 |    0 |   246 |      0 |      0 |            8 |
+|       filters[2].active.u_filter |                   cic3_decimate_2ch_8 |        470 |        470 |       0 |    0 |   246 |      0 |      0 |            8 |
+|       filters[3].active.u_filter |                   cic3_decimate_2ch_9 |        493 |        493 |       0 |    0 |   246 |      0 |      0 |            8 |
+|       filters[4].active.u_filter |     cic3_decimate_2ch__parameterized0 |        413 |        413 |       0 |    0 |   206 |      0 |      0 |            8 |
+|       u_fft                      |                         fft_frame_4ch |       1807 |       1807 |       0 |    0 |  1091 |     10 |      0 |           12 |
+|         (u_fft)                  |                         fft_frame_4ch |       1492 |       1492 |       0 |    0 |   891 |      0 |      0 |           12 |
+|         memories[0].ram          |                           fft_tdp_ram |          1 |          1 |       0 |    0 |     0 |      4 |      0 |            0 |
+|         memories[1].ram          |                        fft_tdp_ram_10 |         80 |         80 |       0 |    0 |     0 |      4 |      0 |            0 |
+|         rom                      |                       fft_twiddle_rom |         22 |         22 |       0 |    0 |     0 |      2 |      0 |            0 |
+|         u_interp_div             |                         fixed_divider |        251 |        251 |       0 |    0 |   200 |      0 |      0 |            0 |
+|       u_hann                     |                       hann_window_2ch |         82 |         82 |       0 |    0 |    42 |      1 |      0 |            2 |
+|     u_fcw_div                    |                 fixed_divider_generic |        416 |        416 |       0 |    0 |   202 |      0 |      0 |            0 |
+|   sys_reset                      |                            reset_sync |         34 |         34 |       0 |    0 |     4 |      0 |      0 |            0 |
+|   u_ab5_rx                       |                     ab5_uart_commands |        175 |        175 |       0 |    0 |   228 |      0 |      0 |            0 |
+|   u_ab5_spec                     |                            v32spec_tx |        197 |        197 |       0 |    0 |   150 |      0 |      2 |            1 |
+|     (u_ab5_spec)                 |                            v32spec_tx |         95 |         95 |       0 |    0 |   128 |      0 |      2 |            1 |
+|     u_uart                       |         uart_tx_v32__parameterized0_3 |        102 |        102 |       0 |    0 |    22 |      0 |      0 |            0 |
+|   u_acq                          |                    acq_trigger_buffer |        252 |        252 |       0 |    0 |   178 |      0 |      0 |            0 |
+|   u_bw_ctrl                      |                          meas_bw_ctrl |        177 |        177 |       0 |    0 |   130 |      0 |      0 |            0 |
+|   u_chguard                      |                         ch_freq_guard |         17 |         17 |       0 |    0 |     9 |      0 |      0 |            0 |
+|   u_harmonic                     |                harmonic_analysis_link |       1134 |       1078 |      56 |    0 |   817 |      3 |      0 |            9 |
+|     powers                       |                  harmonic_power_store |         39 |         39 |       0 |    0 |     0 |      3 |      0 |            0 |
+|     sender                       |                    harmonic_result_tx |        217 |        217 |       0 |    0 |   128 |      0 |      0 |            0 |
+|       (sender)                   |                    harmonic_result_tx |         47 |         47 |       0 |    0 |   106 |      0 |      0 |            0 |
+|       uart                       |         uart_tx_v32__parameterized0_2 |        170 |        170 |       0 |    0 |    22 |      0 |      0 |            0 |
+|     stats                        |                 harmonic_stream_stats |        878 |        822 |      56 |    0 |   689 |      0 |      0 |            9 |
+|   u_lockin                       |                    lockin_measurement |       9159 |       9159 |       0 |    0 |  5853 |      0 |      1 |            8 |
+|     (u_lockin)                   |                    lockin_measurement |        228 |        228 |       0 |    0 |   450 |      0 |      0 |            0 |
+|     ratio_div                    | fixed_divider_generic__parameterized0 |        137 |        137 |       0 |    0 |   152 |      0 |      0 |            0 |
+|     tracking.afc                 |                         local_afc_2ch |       2369 |       2369 |       0 |    0 |  1072 |      0 |      0 |            0 |
+|       (tracking.afc)             |                         local_afc_2ch |       1671 |       1671 |       0 |    0 |   942 |      0 |      0 |            0 |
+|       polar                      |  ai_iq_polar_cordic__parameterized0_1 |        698 |        698 |       0 |    0 |   130 |      0 |      0 |            0 |
+|     tracking.fine                |                    afc_precision_ctrl |        399 |        399 |       0 |    0 |   418 |      0 |      0 |            0 |
+|     u_guard                      |                   lockin_signal_guard |        376 |        376 |       0 |    0 |   272 |      0 |      0 |            0 |
+|     u_lockin                     |                       lockin_core_2ch |       5658 |       5658 |       0 |    0 |  3489 |      0 |      1 |            8 |
+|       (u_lockin)                 |                       lockin_core_2ch |       4665 |       4665 |       0 |    0 |  3346 |      0 |      1 |            8 |
+|       polar                      |    ai_iq_polar_cordic__parameterized0 |        993 |        993 |       0 |    0 |   143 |      0 |      0 |            0 |
+|   u_parallel_link                |                parallel_frame_arbiter |        348 |        348 |       0 |    0 |   265 |      0 |      0 |            0 |
+|   u_tbase                        |                         auto_timebase |         17 |         17 |       0 |    0 |    12 |      0 |      0 |            0 |
+|   u_v32cap3                      |                            v32cap3_tx |        564 |        564 |       0 |    0 |   821 |      1 |      0 |            0 |
+|     (u_v32cap3)                  |                            v32cap3_tx |        179 |        179 |       0 |    0 |   799 |      1 |      0 |            0 |
+|     u_uart                       |           uart_tx_v32__parameterized0 |        385 |        385 |       0 |    0 |    22 |      0 |      0 |            0 |
+|   u_wave_decim                   |                            wave_decim |        311 |        311 |       0 |    0 |   102 |      0 |      0 |            0 |
+|   u_wave_tb                      |                       auto_timebase_0 |         16 |         16 |       0 |    0 |    12 |      0 |      0 |            0 |
++----------------------------------+---------------------------------------+------------+------------+---------+------+-------+--------+--------+--------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+

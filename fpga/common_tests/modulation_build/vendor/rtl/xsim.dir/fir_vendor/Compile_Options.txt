@@ -1,0 +1,1 @@
+"tb_ddc_fir" "glbl" -L "unisims_ver" -s "fir_vendor" 
