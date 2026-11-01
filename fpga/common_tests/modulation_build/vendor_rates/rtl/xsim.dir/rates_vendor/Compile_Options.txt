@@ -1,1 +1,0 @@
-"tb_ddc_rates" "glbl" -L "unisims_ver" -s "rates_vendor" 

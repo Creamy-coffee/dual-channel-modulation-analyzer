@@ -19,3 +19,15 @@ __pycache__/
 
 # 本机会话数据
 .workbuddy/
+
+# FPGA 仿真/综合生成物（Xilinx xsim / Vivado，可再生成，不进仓库）
+xsim.dir/
+webtalk/
+.Xil/
+*.jou
+*.pb
+*.wdb
+*.dcp
+*.bit
+*.ltx
+*.wcfg
