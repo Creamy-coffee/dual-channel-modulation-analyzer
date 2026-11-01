@@ -14,6 +14,22 @@
 现在的数据源是 **真实串口**（`--source uart`，默认 921600 8N1，5.6 fps）；
 `--source demo` 切回本地合成信号，没有板子也能跑。数据源是可插拔接口（见第 8 节）。
 
+---
+
+## 团队成员（Contributors）
+
+本作品由两人组队完成，参加 **2026 全国大学生嵌入式芯片与系统设计竞赛 · FPGA 创新设计赛道（AMD 自主选题）**。
+
+| 成员 | GitHub | 主要负责 |
+|---|---|---|
+| （队长） | [@Creamy-coffee](https://github.com/Creamy-coffee) | RK3506 板端应用：DRM/KMS 渲染、触摸输入、串口链路接收 |
+| （队员） | [@YiHuan15](https://github.com/YiHuan15) | FPGA RTL 与数字信号处理：FFT、锁相、谐波分析、V32CAP3 前端 |
+
+> 仓库以**公开仓库**形式提交，采用 **MIT License**（见根目录 `LICENSE`）。
+> 队员可在各自 GitHub 主页将本仓库 Pin 置顶，便于简历展示。
+>
+> （如需补全真实姓名与更细致的分工，可在上表补充。）
+
 ![示波器页](docs/screenshots/01-scope.png)
 
 界面是**白底 + 中文**，按钮条从左到右：`⏸ 暂停` / `⊞ 自动` / `↺ 复位` / `⛶ 全屏`。
@@ -755,7 +771,7 @@ WAVE_TDBG=1 /usr/bin/waveform_demo --source uart --view scope --baud 921600 &
 
 ## 12. 备份到 GitHub
 
-私有仓库：`https://github.com/Creamy-coffee/rk3506-waveform-demo`（`main` 分支）
+公开仓库（竞赛提交要求可公开访问）：`https://github.com/Creamy-coffee/rk3506-waveform-demo`（`main` 分支，已包含完整 FPGA 源码 `fpga/`）
 
 ### 12.1 为什么远端是 `ssh.github.com:443` 而不是 `github.com`
 

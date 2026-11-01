@@ -1,0 +1,731 @@
+Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2018.3 (win64) Build 2405991 Thu Dec  6 23:38:27 MST 2018
+| Date         : Thu Oct 29 14:06:35 2026
+| Host         : LAPTOP-K2SKPF0L running 64-bit major release  (build 9200)
+| Command      : report_drc -file D:/FPGA_bag/Project/signal_analyzer_base_v1/firmware/experimental/harmonic_rounding_20261029/reports/a222905e5799/drc.rpt
+| Design       : daq_top
+| Device       : xc7a35tfgg484-2
+| Speed File   : -2
+| Design State : Fully Routed
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Report DRC
+
+Table of Contents
+-----------------
+1. REPORT SUMMARY
+2. REPORT DETAILS
+
+1. REPORT SUMMARY
+-----------------
+            Netlist: netlist
+          Floorplan: checkpoint_daq_top_routed
+      Design limits: <entire design considered>
+           Ruledeck: default
+             Max violations: <unlimited>
+             Violations found: 138
++-----------+----------+----------------------------+------------+
+| Rule      | Severity | Description                | Violations |
++-----------+----------+----------------------------+------------+
+| CHECK-3   | Warning  | Report rule limit reached  | 2          |
+| DPIP-1    | Warning  | Input pipelining           | 52         |
+| DPOP-1    | Warning  | PREG Output pipelining     | 19         |
+| DPOP-2    | Warning  | MREG Output pipelining     | 25         |
+| REQP-1839 | Warning  | RAMB36 async control check | 20         |
+| REQP-1840 | Warning  | RAMB18 async control check | 20         |
++-----------+----------+----------------------------+------------+
+
+2. REPORT DETAILS
+-----------------
+CHECK-3#1 Warning
+Report rule limit reached  
+REQP-1839 rule limit reached: 20 violations have been found.
+Related violations: <none>
+
+CHECK-3#2 Warning
+Report rule limit reached  
+REQP-1840 rule limit reached: 20 violations have been found.
+Related violations: <none>
+
+DPIP-1#1 Warning
+Input pipelining  
+DSP g_ddc.u_ddc_fir/acc_i_reg input g_ddc.u_ddc_fir/acc_i_reg/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#2 Warning
+Input pipelining  
+DSP g_ddc.u_ddc_fir/acc_q_reg input g_ddc.u_ddc_fir/acc_q_reg/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#3 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/filters[1].active.u_filter/i0_reg[0] input g_fft_find.u_fft_find/multirate.u_front/filters[1].active.u_filter/i0_reg[0]/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#4 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/filters[1].active.u_filter/i1_reg[0] input g_fft_find.u_fft_find/multirate.u_front/filters[1].active.u_filter/i1_reg[0]/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#5 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/filters[2].active.u_filter/i0_reg[0] input g_fft_find.u_fft_find/multirate.u_front/filters[2].active.u_filter/i0_reg[0]/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#6 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/filters[2].active.u_filter/i1_reg[0] input g_fft_find.u_fft_find/multirate.u_front/filters[2].active.u_filter/i1_reg[0]/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#7 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod input g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#8 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__0/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#9 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__1 input g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__1/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#10 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__2 input g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__2/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#11 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__3 input g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__3/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#12 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pii0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/pii0/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#13 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pii0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/pii0/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#14 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pir0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/pir0/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#15 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pir0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/pir0/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#16 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pri0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/pri0/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#17 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pri0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/pri0/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#18 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/prr0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/prr0/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#19 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/prr0 input g_fft_find.u_fft_find/multirate.u_front/u_fft/prr0/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#20 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_im2 input g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_im2/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#21 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_im2 input g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_im2/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#22 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_re2 input g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_re2/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#23 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_re2 input g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_re2/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#24 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_hann/prod00 input g_fft_find.u_fft_find/multirate.u_front/u_hann/prod00/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#25 Warning
+Input pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_hann/prod10 input g_fft_find.u_fft_find/multirate.u_front/u_hann/prod10/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#26 Warning
+Input pipelining  
+DSP u_ab5_spec/dbfs_mul input u_ab5_spec/dbfs_mul/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#27 Warning
+Input pipelining  
+DSP u_harmonic/stats/base_noise_limit input u_harmonic/stats/base_noise_limit/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#28 Warning
+Input pipelining  
+DSP u_harmonic/stats/base_noise_limit input u_harmonic/stats/base_noise_limit/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#29 Warning
+Input pipelining  
+DSP u_harmonic/stats/base_noise_limit input u_harmonic/stats/base_noise_limit/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#30 Warning
+Input pipelining  
+DSP u_harmonic/stats/calculation_clocks_next input u_harmonic/stats/calculation_clocks_next/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#31 Warning
+Input pipelining  
+DSP u_harmonic/stats/center_next input u_harmonic/stats/center_next/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#32 Warning
+Input pipelining  
+DSP u_harmonic/stats/center_next input u_harmonic/stats/center_next/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#33 Warning
+Input pipelining  
+DSP u_harmonic/stats/center_next input u_harmonic/stats/center_next/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#34 Warning
+Input pipelining  
+DSP u_harmonic/stats/corrected_difference input u_harmonic/stats/corrected_difference/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#35 Warning
+Input pipelining  
+DSP u_harmonic/stats/corrected_difference input u_harmonic/stats/corrected_difference/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#36 Warning
+Input pipelining  
+DSP u_harmonic/stats/final_age input u_harmonic/stats/final_age/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#37 Warning
+Input pipelining  
+DSP u_harmonic/stats/final_age input u_harmonic/stats/final_age/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#38 Warning
+Input pipelining  
+DSP u_harmonic/stats/final_age input u_harmonic/stats/final_age/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#39 Warning
+Input pipelining  
+DSP u_harmonic/stats/next_sum input u_harmonic/stats/next_sum/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#40 Warning
+Input pipelining  
+DSP u_harmonic/stats/next_sum input u_harmonic/stats/next_sum/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#41 Warning
+Input pipelining  
+DSP u_harmonic/stats/next_sum input u_harmonic/stats/next_sum/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#42 Warning
+Input pipelining  
+DSP u_harmonic/stats/result_age_next input u_harmonic/stats/result_age_next/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#43 Warning
+Input pipelining  
+DSP u_harmonic/stats/seven_noise input u_harmonic/stats/seven_noise/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#44 Warning
+Input pipelining  
+DSP u_harmonic/stats/seven_noise input u_harmonic/stats/seven_noise/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#45 Warning
+Input pipelining  
+DSP u_harmonic/stats/seven_noise input u_harmonic/stats/seven_noise/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#46 Warning
+Input pipelining  
+DSP u_harmonic/stats/six_band input u_harmonic/stats/six_band/A[29:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#47 Warning
+Input pipelining  
+DSP u_harmonic/stats/six_band input u_harmonic/stats/six_band/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#48 Warning
+Input pipelining  
+DSP u_harmonic/stats/six_band input u_harmonic/stats/six_band/C[47:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#49 Warning
+Input pipelining  
+DSP u_lockin/u_lockin/window_product_reg[0] input u_lockin/u_lockin/window_product_reg[0]/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#50 Warning
+Input pipelining  
+DSP u_lockin/u_lockin/window_product_reg[1] input u_lockin/u_lockin/window_product_reg[1]/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#51 Warning
+Input pipelining  
+DSP u_lockin/u_lockin/window_product_reg[2] input u_lockin/u_lockin/window_product_reg[2]/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPIP-1#52 Warning
+Input pipelining  
+DSP u_lockin/u_lockin/window_product_reg[3] input u_lockin/u_lockin/window_product_reg[3]/B[17:0] is not pipelined. Pipelining DSP48 input will improve performance.
+Related violations: <none>
+
+DPOP-1#1 Warning
+PREG Output pipelining  
+DSP g_ddc.u_ddc_cic/last_i output g_ddc.u_ddc_cic/last_i/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#2 Warning
+PREG Output pipelining  
+DSP g_ddc.u_ddc_cic/last_q output g_ddc.u_ddc_cic/last_q/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#3 Warning
+PREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod output g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#4 Warning
+PREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__0 output g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__0/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#5 Warning
+PREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__1 output g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__1/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#6 Warning
+PREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__2 output g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__2/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#7 Warning
+PREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__3 output g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__3/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#8 Warning
+PREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__4 output g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__4/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#9 Warning
+PREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_im2 output g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_im2/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#10 Warning
+PREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_re2 output g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_re2/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#11 Warning
+PREG Output pipelining  
+DSP u_ab5_spec/dbfs_mul output u_ab5_spec/dbfs_mul/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#12 Warning
+PREG Output pipelining  
+DSP u_harmonic/stats/base_noise_limit output u_harmonic/stats/base_noise_limit/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#13 Warning
+PREG Output pipelining  
+DSP u_harmonic/stats/calculation_clocks_next output u_harmonic/stats/calculation_clocks_next/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#14 Warning
+PREG Output pipelining  
+DSP u_harmonic/stats/center_next output u_harmonic/stats/center_next/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#15 Warning
+PREG Output pipelining  
+DSP u_harmonic/stats/corrected_difference output u_harmonic/stats/corrected_difference/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#16 Warning
+PREG Output pipelining  
+DSP u_harmonic/stats/final_age output u_harmonic/stats/final_age/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#17 Warning
+PREG Output pipelining  
+DSP u_harmonic/stats/next_sum output u_harmonic/stats/next_sum/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#18 Warning
+PREG Output pipelining  
+DSP u_harmonic/stats/result_age_next output u_harmonic/stats/result_age_next/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-1#19 Warning
+PREG Output pipelining  
+DSP u_harmonic/stats/seven_noise output u_harmonic/stats/seven_noise/P[47:0] is not pipelined (PREG=0). Pipelining the DSP48 output will improve performance and often saves power so it is suggested whenever possible to fully pipeline this function.  If this DSP48 function was inferred, it is suggested to describe an additional register stage after this function.  If the DSP48 was instantiated in the design, it is suggested to set the PREG attribute to 1.
+Related violations: <none>
+
+DPOP-2#1 Warning
+MREG Output pipelining  
+DSP g_ddc.u_ddc_nco/macc_i_reg multiplier stage g_ddc.u_ddc_nco/macc_i_reg/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#2 Warning
+MREG Output pipelining  
+DSP g_ddc.u_ddc_nco/macc_q_reg multiplier stage g_ddc.u_ddc_nco/macc_q_reg/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#3 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#4 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__0 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__0/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#5 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__1 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__1/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#6 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__2 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__2/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#7 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__3 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__3/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#8 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__4 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/interp_prod__4/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#9 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pii0 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/pii0/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#10 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pir0 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/pir0/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#11 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/pri0 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/pri0/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#12 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/prr0 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/prr0/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#13 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_im2 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_im2/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#14 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_re2 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_fft/scan_re2/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#15 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_hann/prod00 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_hann/prod00/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#16 Warning
+MREG Output pipelining  
+DSP g_fft_find.u_fft_find/multirate.u_front/u_hann/prod10 multiplier stage g_fft_find.u_fft_find/multirate.u_front/u_hann/prod10/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#17 Warning
+MREG Output pipelining  
+DSP u_ab5_spec/dbfs_mul multiplier stage u_ab5_spec/dbfs_mul/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#18 Warning
+MREG Output pipelining  
+DSP u_lockin/u_lockin/mix_reg[0] multiplier stage u_lockin/u_lockin/mix_reg[0]/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#19 Warning
+MREG Output pipelining  
+DSP u_lockin/u_lockin/mix_reg[1] multiplier stage u_lockin/u_lockin/mix_reg[1]/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#20 Warning
+MREG Output pipelining  
+DSP u_lockin/u_lockin/mix_reg[2] multiplier stage u_lockin/u_lockin/mix_reg[2]/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#21 Warning
+MREG Output pipelining  
+DSP u_lockin/u_lockin/mix_reg[3] multiplier stage u_lockin/u_lockin/mix_reg[3]/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#22 Warning
+MREG Output pipelining  
+DSP u_lockin/u_lockin/window_product_reg[0] multiplier stage u_lockin/u_lockin/window_product_reg[0]/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#23 Warning
+MREG Output pipelining  
+DSP u_lockin/u_lockin/window_product_reg[1] multiplier stage u_lockin/u_lockin/window_product_reg[1]/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#24 Warning
+MREG Output pipelining  
+DSP u_lockin/u_lockin/window_product_reg[2] multiplier stage u_lockin/u_lockin/window_product_reg[2]/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+DPOP-2#25 Warning
+MREG Output pipelining  
+DSP u_lockin/u_lockin/window_product_reg[3] multiplier stage u_lockin/u_lockin/window_product_reg[3]/P[47:0] is not pipelined (MREG=0). Pipelining the multiplier function will improve performance and will save significant power so it is suggested whenever possible to fully pipeline this function.  If this multiplier was inferred, it is suggested to describe an additional register stage after this function.  If there is no registered adder/accumulator following the multiply function, two pipeline stages are suggested to allow both the MREG and PREG registers to be used.  If the DSP48 was instantiated in the design, it is suggested to set both the MREG and PREG attributes to 1 when performing multiply functions.
+Related violations: <none>
+
+REQP-1839#1 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[10] (net: g_ddc.u_iq_tx/rdp[6]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[6]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#2 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[11] (net: g_ddc.u_iq_tx/rdp[7]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[7]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#3 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[12] (net: g_ddc.u_iq_tx/rdp[8]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[8]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#4 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[13] (net: g_ddc.u_iq_tx/rdp[9]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[9]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#5 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[14] (net: g_ddc.u_iq_tx/rdp[10]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[10]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#6 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[4] (net: g_ddc.u_iq_tx/rdp[0]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[0]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#7 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[5] (net: g_ddc.u_iq_tx/rdp[1]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[1]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#8 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[6] (net: g_ddc.u_iq_tx/rdp[2]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[2]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#9 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[7] (net: g_ddc.u_iq_tx/rdp[3]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[3]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#10 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[8] (net: g_ddc.u_iq_tx/rdp[4]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[4]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#11 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ADDRBWRADDR[9] (net: g_ddc.u_iq_tx/rdp[5]) which is driven by a register (g_ddc.u_iq_tx/rdp_reg[5]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#12 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ENARDEN (net: g_ddc.u_iq_tx/E[0]) which is driven by a register (g_ddc.u_selected_analysis/polar/out_valid_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#13 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ENBWREN (net: g_ddc.u_iq_tx/fifo_reg_0_i_2_n_0) which is driven by a register (adc_capture/g_ext.sample_otr_reg[0]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#14 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ENBWREN (net: g_ddc.u_iq_tx/fifo_reg_0_i_2_n_0) which is driven by a register (adc_capture/g_ext.sample_otr_reg[1]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#15 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ENBWREN (net: g_ddc.u_iq_tx/fifo_reg_0_i_2_n_0) which is driven by a register (adc_capture/g_ext.sample_valid_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#16 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ENBWREN (net: g_ddc.u_iq_tx/fifo_reg_0_i_2_n_0) which is driven by a register (g_ddc.u_iq_tx/state_reg[0]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#17 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ENBWREN (net: g_ddc.u_iq_tx/fifo_reg_0_i_2_n_0) which is driven by a register (g_ddc.u_iq_tx/state_reg[1]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#18 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ENBWREN (net: g_ddc.u_iq_tx/fifo_reg_0_i_2_n_0) which is driven by a register (g_ddc.u_iq_tx/state_reg[2]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#19 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/ENBWREN (net: g_ddc.u_iq_tx/fifo_reg_0_i_2_n_0) which is driven by a register (sys_reset/sync_ff_reg[3]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1839#20 Warning
+RAMB36 async control check  
+The RAMB36E1 g_ddc.u_iq_tx/fifo_reg_0 has an input control pin g_ddc.u_iq_tx/fifo_reg_0/RSTRAMB (net: g_ddc.u_iq_tx/g_ddc.iq_rst_n) which is driven by a register (adc_capture/g_ext.sample_valid_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#1 Warning
+RAMB18 async control check  
+The RAMB18E1 g_ddc.u_ddc_fir/u_history has an input control pin g_ddc.u_ddc_fir/u_history/ENBWREN (net: g_ddc.u_ddc_fir/ENBWREN0) which is driven by a register (adc_capture/g_ext.sample_otr_reg[0]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#2 Warning
+RAMB18 async control check  
+The RAMB18E1 g_ddc.u_ddc_fir/u_history has an input control pin g_ddc.u_ddc_fir/u_history/ENBWREN (net: g_ddc.u_ddc_fir/ENBWREN0) which is driven by a register (adc_capture/g_ext.sample_otr_reg[1]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#3 Warning
+RAMB18 async control check  
+The RAMB18E1 g_ddc.u_ddc_fir/u_history has an input control pin g_ddc.u_ddc_fir/u_history/ENBWREN (net: g_ddc.u_ddc_fir/ENBWREN0) which is driven by a register (adc_capture/g_ext.sample_valid_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#4 Warning
+RAMB18 async control check  
+The RAMB18E1 g_ddc.u_ddc_fir/u_history has an input control pin g_ddc.u_ddc_fir/u_history/ENBWREN (net: g_ddc.u_ddc_fir/ENBWREN0) which is driven by a register (sys_reset/sync_ff_reg[3]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#5 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[10] (net: sys_reset_n_48) which is driven by a register (adc_capture/g_ext.sample_otr_reg[0]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#6 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[10] (net: sys_reset_n_48) which is driven by a register (adc_capture/g_ext.sample_otr_reg[1]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#7 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[10] (net: sys_reset_n_48) which is driven by a register (adc_capture/g_ext.sample_valid_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#8 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[10] (net: sys_reset_n_48) which is driven by a register (sys_reset/sync_ff_reg[3]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#9 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[11] (net: sys_reset_n_47) which is driven by a register (adc_capture/g_ext.sample_otr_reg[0]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#10 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[11] (net: sys_reset_n_47) which is driven by a register (adc_capture/g_ext.sample_otr_reg[1]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#11 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[11] (net: sys_reset_n_47) which is driven by a register (adc_capture/g_ext.sample_valid_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#12 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[11] (net: sys_reset_n_47) which is driven by a register (sys_reset/sync_ff_reg[3]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#13 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[12] (net: sys_reset_n_46) which is driven by a register (adc_capture/g_ext.sample_otr_reg[0]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#14 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[12] (net: sys_reset_n_46) which is driven by a register (adc_capture/g_ext.sample_otr_reg[1]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#15 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[12] (net: sys_reset_n_46) which is driven by a register (adc_capture/g_ext.sample_valid_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#16 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[12] (net: sys_reset_n_46) which is driven by a register (sys_reset/sync_ff_reg[3]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#17 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[13] (net: sys_reset_n_45) which is driven by a register (adc_capture/g_ext.sample_otr_reg[0]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#18 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[13] (net: sys_reset_n_45) which is driven by a register (adc_capture/g_ext.sample_otr_reg[1]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#19 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[13] (net: sys_reset_n_45) which is driven by a register (adc_capture/g_ext.sample_valid_reg) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+REQP-1840#20 Warning
+RAMB18 async control check  
+The RAMB18E1 macc_i_reg_i_1 has an input control pin macc_i_reg_i_1/ADDRARDADDR[13] (net: sys_reset_n_45) which is driven by a register (sys_reset/sync_ff_reg[3]) that has an active asychronous set or reset. This may cause corruption of the memory contents and/or read values when the set/reset is asserted and is not analyzed by the default static timing analysis. It is suggested to eliminate the use of a set/reset to registers driving this RAMB pin or else use a synchronous reset in which the assertion of the reset is timed by default.
+Related violations: <none>
+
+
