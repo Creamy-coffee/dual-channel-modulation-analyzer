@@ -992,3 +992,7 @@ git remote set-url origin https://github.com/Creamy-coffee/rk3506-waveform-demo.
 - 不提升信噪比：通带一直开到奈奎斯特，带内噪声原样保留。
 - 救不了真混叠：超过 32.5 MHz 的成分已经折叠到带内，插值不知道它原本在哪。
 - 窗口边缘前后各 64 个样点没有完整支撑，自动退回线性插值（避免幅度塌陷）。
+
+## 许可证
+
+项目自身代码采用 GNU GPL v3.0（GPL-3.0-only），详见 [LICENSE](LICENSE) 与 [许可范围说明](LICENSING.md)。第三方组件保留原有许可证。
