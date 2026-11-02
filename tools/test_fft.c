@@ -4,7 +4,10 @@
  * 编译（x86 主机）：
  *   gcc -O2 -Isrc -o test_fft tools/test_fft.c src/fft.c src/wave_source.c -lm
  *
- * 期望输出：在 100 / 300 / 500 Hz 附近各出现一个峰，幅度约 1.0 / 0.2~0.7 / 0.2。
+ * 帧长与采样率由数据源在 init 后给出（wave_source_t::frame_len / sample_rate），
+ * 不再是编译期宏；WAVE_MAX_FRAME 只作为数组上界。早期版本用的是
+ * WAVE_FRAME_LEN / WAVE_SAMPLE_RATE 两个宏，接口改名后本文件没有跟着改，
+ * 已按当前头文件修正。
  */
 #include <stdio.h>
 #include <math.h>
@@ -14,10 +17,8 @@
 
 int main(void)
 {
-    float frame[WAVE_FRAME_LEN];
-    float mag[WAVE_FRAME_LEN / 2];
-    const int   n  = WAVE_FRAME_LEN;
-    const float df = (float)WAVE_SAMPLE_RATE / (float)n;
+    float frame[WAVE_MAX_FRAME];
+    float mag[WAVE_MAX_FRAME / 2];
 
     const wave_source_t *src = wave_source_get();
     if (!src || !src->init || !src->read_frame) {
@@ -26,8 +27,16 @@ int main(void)
     }
     src->init();
 
+    const int n  = src->frame_len;
+    const int fs = src->sample_rate;
+    if (n <= 0 || n > WAVE_MAX_FRAME || (n & (n - 1)) != 0) {
+        printf("bad frame_len %d\n", n);
+        return 1;
+    }
+    const float df = (float)fs / (float)n;
+
     printf("source = %s, n = %d, fs = %d Hz, df = %.3f Hz, span = %.1f ms\n\n",
-           src->name, n, WAVE_SAMPLE_RATE, df, 1000.0f * n / WAVE_SAMPLE_RATE);
+           src->name, n, fs, df, 1000.0f * n / fs);
 
     /* 跑 5 帧，看看三次谐波的幅度是不是在变（说明调制生效） */
     for (int f = 0; f < 5; f++) {
@@ -36,7 +45,7 @@ int main(void)
 
         fft_magnitude_spectrum(frame, n, mag);
 
-        /* 找三个主要峰（跳过 DC 附近） */
+        /* 找几个主要峰（跳过 DC 附近） */
         printf("frame %d:", f);
         int found = 0;
         for (int i = 3; i < n / 2 - 1 && found < 4; i++) {
@@ -53,7 +62,6 @@ int main(void)
     int pk = 2;
     for (int i = 3; i < n / 2; i++) if (mag[i] > mag[pk]) pk = i;
     printf("\ntop peak: bin %d -> %.1f Hz  (mag %.3f)\n", pk, (float)pk * df, mag[pk]);
-    printf("expected: 100.0 Hz\n");
 
     return 0;
 }

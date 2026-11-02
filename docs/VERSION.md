@@ -33,10 +33,14 @@
 `git checkout <branch> -- src/ third_party/ CMakeLists.txt build.sh tools/` 的方式把屏端内容
 落到 main，因此 main 上 `src/` 的文件内容与该分支一致，但提交历史不同源。
 
-**迁移后尚未验证的一项**：本次文件对齐**没有**在交叉工具链上重新编译。已做的静态核对为
-——`CMakeLists.txt` 列出的 28 个源文件全部存在；`src/`、`tools/` 的本地 `#include` 除
-`liquid.h`（`third_party/`）与 `lvgl.h`（外部 LVGL 目录）外全部可解析。
-**首次在板子上部署前，请先用 `LVGL_DIR=<你的 LVGL 路径> ./build.sh` 完整编译一次。**
+**编译状态**：2026-11-02 已在仓库外的独立副本上完整重建过一次——LVGL 284 个源文件、
+应用 21 个源文件全部编译通过，静态链接得到 2,258,844 B 的 `ELF 32-bit ARM / v7-A / VFPv4 /
+hard-float` 可执行文件，5 个命令行工具同样构建成功。过程与结果见
+[`docs/build-verify-20261102.md`](build-verify-20261102.md)。
+
+> 这次重建用的是 Xilinx SDK 自带的 `arm-linux-gnueabihf-gcc 7.3.1`，**不是**团队正式的
+> `gcc-arm-10.3-2021.07`（`toolchain.cmake` 里写死的那套）。两者 ABI 相同但编译器版本不同，
+> **发布二进制仍须用正式工具链重编一次**，并用 `file` 确认 `ARM, EABI5, hard-float`。
 
 ## 三、文档
 
@@ -55,4 +59,6 @@
 - [ ] bit 文件 SHA256 与上表一致
 - [ ] 屏端二进制来自「发布程序」对应的提交
 - [ ] README 的 13 张截图与发布程序一致
-- [ ] 在交叉工具链上完整编译一次屏端程序，确认产物为 ARMv7 hard-float
+- [x] 在交叉工具链上完整编译一次屏端程序，确认产物为 ARMv7 hard-float（2026-11-02，GCC 7.3.1，见 `build-verify-20261102.md`）
+- [ ] 用**正式**工具链（gcc-arm-10.3-2021.07）重编一次屏端程序，替换上面的 7.3.1 产物
+- [ ] 上板跑一次，确认七页切换、读数与截图一致（本次重建未上板）

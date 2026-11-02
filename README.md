@@ -109,6 +109,8 @@ SPEC 频谱帧（2096 B）、MEAS 测量帧（128 B）、ANA 调制帧（1076 B�
 | [image-receiver-20261027.md](docs/image-receiver-20261027.md) 本机软件验证 | OOK / 2FSK / BPSK 生产 DSP → 曼彻斯特 → 包 CRC → 图块 → 整图 CRC | 全链通过 | 协议与解码链正确；**尚无语发器→ADC→屏幕的整机图片传输记录** |
 | `fpga/tests/` RTL 仿真 | tb_adc_parallel、local_afc_2ch、meas_bw_ctrl、fft_frame_4ch 等 | Vivado 时序波形 | 数字逻辑功能正确性；**不含**模拟前端与板级噪声 |
 | `fpga/build_evidence/*.rpt` | 实现 `a222905e` | 20294 LUT / 80 DSP / WNS +0.172 ns | 该次实现的资源与时序；换代码或换工具版本需重测 |
+| [build-verify-20261102.md](docs/build-verify-20261102.md) 屏端重建 | 仓库外独立副本；LVGL 9.1.0 + liquid-dsp 1.7.0（SHA256 与 `third_party/liquid.cmake` 一致）| LVGL 284 / 应用 21 个源文件全部编译通过，链接得到 `ELF32 ARM v7-A VFPv4 hard-float`，2,258,844 B；5 个命令行工具同样构建成功 | 源码自洽可编译；**编译器是 GCC 7.3.1，不是正式工具链**，且未上板 |
+| 主机自测（同一份源码）| `test_bpsk_decoder` / `test_ook_decoder` / `test_fsk_decoder` / `test_fft_windows` / `test_fft` | 全部 PASS：BPSK 12 例各恢复 3778–3780 bit、PN7 全锁、`errors=0`、EVM 0.0277–0.0338 | 算法与解码链在软件层成立；**合成基带不等于实机链路** |
 
 **链路正确 ≠ 测量正确**：每帧 CRC32 通过只说明这帧数据完整到达，不证明幅度、相位或调制度准确。上面几列分开写就是这个原因。
 
