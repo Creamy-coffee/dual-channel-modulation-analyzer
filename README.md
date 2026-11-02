@@ -23,6 +23,36 @@
 
 ---
 
+## FPGA 侧：这个作品的重头
+
+目标器件 **XC7A35T FGG484-2（Artix-7 35T）**，Vivado 2018.3 综合实现，**RTL 全部自研，没有调用 Xilinx FFT IP**。
+系统时钟 65 MHz（50 MHz 板载晶振经 MMCM ×39 ÷2 ÷15 生成；另一路 300° 相移作 ADC 前传时钟，对应 65 MSPS）。
+
+| 能力 | 怎么做的 | 源码 |
+|---|---|---|
+| 双通道 12 位 65 MSPS 同步采集 | AD9238 两路在同一采样沿锁存，偏移二进制转二补码；两通道同一帧，不分时切换 | `rtl/ad9238_capture.v` |
+| **自研 4096 点共享 FFT** | 手写时分复用 radix-2 DIT 蝶形，每级右移 1 位（总归一化 1/N）；多通道串行复用同一套旋转因子表，只搜 1…N/2 | `rtl/fft_frame_4ch.v`、`rtl/twiddle_4096.mem` |
+| 多速率抽取前端 | CIC + 可换系数 FIR（wide / narrow 多套 `.mem`），按信号稳定性自动换档 | `rtl/multirate_fft_frontend.v`、`rtl/meas_bw_ctrl.v` |
+| DDC 数字下变频 | NCO 混频（Q15 sin/cos 表）+ CIC / FIR 抽取，AM、2FSK、BPSK、OOK 的基带都从这里出 | `rtl/ddc_nco_mixer.v`、`rtl/ddc_cic_decimator.v`、`rtl/ddc_fir_decimator.v` |
+| 片上频率捕获 + 锁相 | 「FFT 粗估 → 精扫 → 锁定」三段式，**一份 bitstream 扫完 ~200 Hz…32.4 MHz**（搜索范围，边界未做标定），换载频不用重编 | `rtl/freq_scan_ctrl.v`、`rtl/local_afc_2ch.v`、`rtl/lockin_core_2ch.v` |
+| 谐波与 THD | H1–H5 功率存表、log2 表转 dB、64 位整数开方算 THD 2–5 | `rtl/harmonic_power_store.v`、`rtl/isqrt_u64.v` |
+| 成帧与链路 | 多路帧并行仲裁 + AB5 时序 + 逐帧 CRC32，2 Mbaud 8N1 发出 | `rtl/parallel_frame_arbiter.v`、`rtl/ab5_frame_sequencer.v`、`rtl/v32cap3_tx.v` |
+
+**资源与时序**（`fpga/build_evidence/` 是原机报告，实现 ID `a222905e`，Routed 状态）
+
+| 资源 | 占用 |
+|---|---|
+| Total LUTs | **20294**（Logic 20238 + LUTRAM 56） |
+| 触发器 | 13111 |
+| DSP48 | **80**（蝶形、混频、CIC 累加） |
+| Block RAM | 32×RAMB36 + 8×RAMB18，36 块等效（样点缓存、旋转因子、系数表、波形 LUT） |
+| 时序 | WNS **+0.172 ns**、WHS **+0.010 ns**，无 setup / hold 违例 |
+
+**可复现**：`fpga/build.tcl` 一条命令重建工程与 bit；`fpga/tests/` 里有 FFT、谐波、成帧的 RTL 测试平台，
+ADC 采集、频率捕获、带宽切换、FFT 成帧、AB5 发送都有 Vivado 仿真波形（对应技术文档图 3–8）。
+
+---
+
 ## 团队成员（Contributors）
 
 本作品由两人组队完成，参加 **2026 全国大学生嵌入式芯片与系统设计竞赛 · FPGA 创新设计赛道（AMD 自主选题）**。
