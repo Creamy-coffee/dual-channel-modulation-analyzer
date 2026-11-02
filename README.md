@@ -165,6 +165,7 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 - 七页版本的绘制帧率复测（现有 9.9 FPS 是六页版本数据）。
 - 干净环境下的完整重建验收（含 bit 逐字节一致性）。
 - 整机与接线的实物照片（技术文档里仍是占位框）。
+- 界面字体子集目前由 SimHei 与 Segoe UI Symbol（随 Windows 提供的商业字体）生成，作为公开仓库长期分发前应换成思源黑体重新生成；替换路径与现状见 [LICENSING.md](LICENSING.md)。
 
 ## 版本与复现
 
