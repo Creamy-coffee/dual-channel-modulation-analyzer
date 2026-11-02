@@ -20,9 +20,9 @@
 vivado -mode batch -source fpga/build.tcl
 ```
 
-原工程使用 Vivado 2018.3。脚本会创建 `fpga/build` 和 `fpga/reports`；不自动烧录。新机器上的完整重建尚未验收。脚本写入历史 USR_ACCESS `a222905e`，因此重建后必须重新计算 bit SHA256，不能仅靠 USR_ACCESS 认定与历史产物逐字节相同。
+原工程使用 Vivado 2018.3。脚本会创建 `fpga/build` 和 `fpga/reports`；不自动烧录。2026-11-02 已在仓库外的独立副本上从零跑通全流程（同一版本 Vivado），结果与下面的历史报告逐项一致；但**没有烧到板子上跑功能**，上板验证仍是提交前必做项。脚本写入 USR_ACCESS `a222905e`，而 bit 头里带构建时间戳，因此重建后的 SHA256 必然与历史产物不同，一致性应按 USR_ACCESS、时序/资源报告和上板功能判定，不能按字节比较。
 
-历史实际 bit SHA256：`76afefdbf47d3cdb31ea5eaba13fd96468875622ede87bce231b217367e0b051`。布线报告：20294 LUT、80 DSP、36 块等效 BRAM，WNS +0.172 ns，WHS +0.010 ns。
+历史实际 bit SHA256：`76afefdbf47d3cdb31ea5eaba13fd96468875622ede87bce231b217367e0b051`。布线报告：20294 LUT、80 DSP、36 块等效 BRAM，WNS +0.172 ns，WHS +0.010 ns。重建验收的过程与全部数字见 [`../docs/build-verify-20261102.md`](../docs/build-verify-20261102.md)。
 
 ## 接口和边界
 

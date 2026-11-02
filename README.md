@@ -53,7 +53,11 @@
 | 时序 | WNS **+0.172 ns**、WHS **+0.010 ns**，无 setup / hold 违例 |
 
 **构建**：`fpga/build.tcl` 提供完整构建脚本（Vivado 批处理建工程 → 综合 → 实现 → 出 bit）。
-仓库提供脚本不等于已在干净环境验收：**换机器完整重建尚未跑通验证**，详见 [fpga/README.md](fpga/README.md)。
+2026-11-02 已在仓库外的独立副本上用同一套 Vivado 2018.3 跑通全流程：WNS +0.172 ns / WHS +0.010 ns
+（0 个失败端点）、20294 LUT / 13111 FF / 80 DSP / 36 BRAM、DRC 138 条全为 Warning 无 Error，
+与 `fpga/build_evidence/` 逐项一致。**bit 的 SHA256 不会相同**——Vivado 把构建时间写进 bit 头，
+一致性应按 USR_ACCESS + 时序/资源 + 上板功能判定。过程见
+[build-verify-20261102.md](docs/build-verify-20261102.md)。
 
 ## 数字调制：分清"画出来"和"判出来"
 
@@ -165,7 +169,8 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 - BPSK 在实机上留下一帧「已获资格」的判决记录（现有实机帧为 EVM 0.060 / 待判决）。
 - 「图片」页真实载波下的完整接收核对。
 - 七页版本的绘制帧率复测（现有 9.9 FPS 是六页版本数据）。
-- 干净环境下的完整重建验收（含 bit 逐字节一致性）。
+- 上板验证本次重建产物（bit 与时序资源已复现，但未下载到板子跑功能）。
+- 用正式工具链（`gcc-arm-10.3-2021.07`）重编屏端程序（本次重建用的是 GCC 7.3.1）。
 - 整机与接线的实物照片（技术文档里仍是占位框）。
 - 界面字体子集目前由 SimHei 与 Segoe UI Symbol（随 Windows 提供的商业字体）生成，作为公开仓库长期分发前应换成思源黑体重新生成；替换路径与现状见 [LICENSING.md](LICENSING.md)。
 
@@ -185,6 +190,7 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 | 文档 | 内容 |
 |---|---|
 | [docs/VERSION.md](docs/VERSION.md) | 参赛版本清单：实现 ID、bit 哈希、屏端程序、工具版本、已知差异 |
+| [docs/build-verify-20261102.md](docs/build-verify-20261102.md) | 干净环境重建验收：环境、命令、屏端产物、FPGA 时序/资源/DRC 对比、未覆盖项 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发记录：无 framebuffer 怎么点屏、触摸与协议细节、参数调整、排错工具 |
 | [fpga/README.md](fpga/README.md) | FPGA 工程结构、构建方法、接口与边界 |
 | [docs/V32CAP3_FPGA_TX_SPEC.md](docs/V32CAP3_FPGA_TX_SPEC.md) | 上位机协议与帧格式 |

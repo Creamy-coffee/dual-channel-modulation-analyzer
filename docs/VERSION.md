@@ -16,8 +16,11 @@
 | 资源 / 时序 | 20294 LUT、13111 FF、80 DSP、32×RAMB36 + 8×RAMB18；WNS +0.172 ns、WHS +0.010 ns |
 | 报告原件 | `fpga/build_evidence/{utilization,timing,drc}.rpt` |
 
-> `fpga/build.tcl` 会把 USR_ACCESS 写成 `a222905e`，因此重建后必须重新计算 bit 的 SHA256，
-> 不能只凭 USR_ACCESS 判定与历史产物逐字节一致。干净环境下的完整重建尚未验收。
+> `fpga/build.tcl` 会把 USR_ACCESS 写成 `a222905e`，而 bit 头里带构建时间戳，
+> 所以重建产物的 SHA256 **必然**与上表不同，不能按字节比较判定一致性。
+> 2026-11-02 的干净重建结果是：WNS +0.172 ns / WHS +0.010 ns（0 失败端点）、
+> 20294 LUT / 13111 FF / 80 DSP / 36 BRAM、DRC 138 条全 Warning 无 Error，
+> 三项与上表逐项一致；过程见 [`docs/build-verify-20261102.md`](build-verify-20261102.md)。
 
 ## 二、屏端（RK3506）
 

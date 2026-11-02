@@ -80,4 +80,42 @@
 
 ## 四、实现结果
 
-（见文末"实现阶段结论"）
+`build.tcl` 一路跑到 `write_bitstream` 成功（`write_bitstream completed successfully`），
+中途没有改脚本或参数。实现后的报告与历史 `fpga/build_evidence/` 对比：
+
+| 项 | 本次干净重建 | 历史 `build_evidence/` | 是否一致 |
+|---|---|---|---|
+| WNS | **+0.172 ns**（0 个失败端点） | +0.172 ns | 一致 |
+| WHS | **+0.010 ns**（0 个失败端点） | +0.010 ns | 一致 |
+| WPWS | 6.562 ns（0 个失败端点） | — | — |
+| Slice LUTs | 20294（97.57%） | 20294 | 一致 |
+| LUT as Logic / Memory | 20238 / 56 | 20238 / 56 | 一致 |
+| Slice Registers | 13111 | 13111 | 一致 |
+| DSP48E1 | 80（88.89%） | 80 | 一致 |
+| Block RAM Tile | 36（32×RAMB36 + 8×RAMB18） | 36 | 一致 |
+| DRC | 138 条，**全部 Warning，无 Error** | 138 条，同样 6 条规则 | 一致（CHECK-3 2、DPIP-1 52、DPOP-1 19、DPOP-2 25、REQP-1839 20、REQP-1840 20）|
+| bit 文件 | 2,192,115 B，SHA256 `0a64f12e…6af39` | SHA256 `76afefdb…0b051` | **不一致** |
+
+**时序、资源、DRC 三项逐项复现，bit 哈希不同。** 原因在 bit 头里写着：
+
+```
+daq_top;UserID=0XFFFFFFFF;Version=2018.3 7a35tfgg484 2026/11/02 17:29:09
+```
+
+Vivado 会把构建日期时间写进 bit 头，所以同一份源码、同一版本工具在不同时刻重建，
+SHA256 必然不同。**不能用 bit 的 SHA256 判断两次构建是否等价**，可用的判据是：
+USR_ACCESS（`build.tcl` 设为 `0xa222905e`）、上表的时序与资源、DRC 规则分布，以及上板功能验证。
+
+> 注意：`build.tcl` 里那两处 `phys_opt_design -directive ExploreWithAggressiveHoldFix`
+> 与 `place_design -directive ExtraTimingOpt` 是收敛的关键。综合后 WNS 是 −0.466 ns，
+> 靠这两步才拉到 +0.172 ns。少跑一步就会掉出时序，所以不要手工删减 flow。
+
+## 五、这次验收没覆盖的部分
+
+1. **没有上板**：本次只验证"能重建、时序收敛、资源与历史一致"，没有把 bit 下载到板子
+   跑功能。上板验证仍是提交前必做项。
+2. **屏端编译器不是正式的**：见第一节差异说明，发布二进制要用 `gcc-arm-10.3-2021.07` 重编。
+3. **图片与谐波两个自测需要输入样本**：`test_image_transport`、`test_harmonic_confidence`
+   以文件路径为参数（`argc==2`），本次没有对应样本，未运行。
+4. **界面字体仍是 SimHei 位图子集**：换字体需要 `lv_font_conv`（Node 工具）且必须在屏上
+   逐字确认，本次不动，授权现状与替换步骤见 [LICENSING.md](../LICENSING.md)。
