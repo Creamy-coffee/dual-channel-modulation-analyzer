@@ -1,3 +1,4 @@
+#include "harmonic_confidence.h"
 /*
  * ui.c —— V32 SIGNAL ANALYZER 界面（参考稿 v32_linux_touch_ui-1.html 的 1:1 移植）
  *
@@ -23,11 +24,16 @@
 #include "wave_source.h"
 #include "analysis_history.h"
 #include "modulation_view.h"
+#include "ook_decoder.h"
+#include "bpsk_decoder.h"
+#include "image_transport.h"
 #include "v32cap3.h"       /* SYSTEM 页要读 UART 的帧数/CRC 错误统计 */
 #include "fft.h"
 #include "bl_interp.h"
 #include "drm_disp.h"
 #include "port.h"
+#include "scope_acquisition.h"
+#include "scope_processing.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -35,6 +41,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdarg.h>
+
+/* LVGL 9 invalidates and reallocates a label even when its text is identical.
+   Keep formatting and values unchanged, but leave unchanged panels out of the
+   software redraw. These wrappers apply only to this translation unit. */
+static void label_text_changed(lv_obj_t *obj,const char *text)
+{
+    if(!text || strcmp(lv_label_get_text(obj),text))lv_label_set_text(obj,text);
+}
+static void label_format_changed(lv_obj_t *obj,const char *fmt,...)
+{
+    if(!fmt){lv_label_set_text_fmt(obj,NULL);return;}
+    char local[512];va_list ap,copy;va_start(ap,fmt);va_copy(copy,ap);
+    int n=vsnprintf(local,sizeof local,fmt,ap);va_end(ap);
+    if(n>=0 && n<(int)sizeof local)label_text_changed(obj,local);
+    else if(n>=0){char *large=malloc((size_t)n+1);if(large){vsnprintf(large,(size_t)n+1,fmt,copy);label_text_changed(obj,large);free(large);}}
+    va_end(copy);
+}
+#define lv_label_set_text label_text_changed
+#define lv_label_set_text_fmt label_format_changed
 
 /* =========================================================
  * 布局常量（由 theme.h 里的 CSS 数字算出来）
@@ -73,11 +99,11 @@
  * 21px 一行放不下（下面还有「通道」面板），压到 19px。
  * 数值字也换 16px 粗体（V32_FONT_ROWVAL），18px 粗体的行高 21 会顶行。
  */
-#define METRIC_H  19
+#define METRIC_H  22
 /* 右栏读数：16px 粗体（scope_proto 是 12.5px 同号字，我们只有 16 档就近） */
-#define V32_FONT_ROWVAL  (&lv_font_v32_16_bold)
+#define V32_FONT_ROWVAL  (&lv_font_v32_18_bold)
 /* .kv 一行：13px 字体行高 15 + 上下各 6 + 1px 下边框 */
-#define KV_H      28
+#define KV_H      44
 /* .panel-title 那一行 + margin-bottom */
 #define TITLE_H   (15 + V32_PANEL_TITLE_MB)
 
@@ -120,15 +146,6 @@ static const float TB_US[23] = {
 };
 #define TB_N 23
 
-/* 调制模式（协议 id，循环切换）。中文短名给芯片，AA5 下发用 id。 */
-static const char *MOD_NAME[V32_MOD_COUNT] = {
-    "自动", "AM", "FM", "PM", "锁相", "基带"
-};
-static int s_mod_idx;                    /* 当前选中的调制模式（协议 id） */
-
-static const int   TAU_MS[4]       = { 1, 10, 100, 1000 };
-static const char  TAU_OPTS[]      = "1 ms\n10 ms\n100 ms\n1 s";
-static const int   TAU_DEF         = 1;    /* 10 ms */
 
 /* =========================================================
  * 全局状态（变量名故意和参考稿 JS 里的对应）
@@ -142,7 +159,6 @@ static struct {
     int   tb_idx;
     int   win_idx;
     int   fft_ch;        /* FFT 用哪一路：0=自动(交流大的一路) 1=CH1 2=CH2 */
-    int   tau_idx;
     float phase;        /* ° */
     bool  fullscreen;
     bool  use_real;     /* WAVE_SRC=real */
@@ -155,6 +171,10 @@ static lv_obj_t *s_nav[UI_PAGE_COUNT];
 static lv_obj_t *s_aside[UI_PAGE_COUNT];      /* 可 NULL（SYSTEM 页没有右栏） */
 
 static lv_obj_t *s_plot_scope, *s_plot_fft, *s_plot_iq, *s_plot_lock;
+static lv_obj_t *s_scope_acq;
+static lv_obj_t *s_lock_history_title;
+static lv_obj_t *s_system_frame_info;
+static void cb_scope_help(lv_event_t *e);
 static lv_obj_t *s_plot_raw, *s_plot_den;
 
 static lv_obj_t *s_lbl_scope_freq, *s_lbl_v1, *s_lbl_v2, *s_lbl_phase;
@@ -162,8 +182,8 @@ static lv_obj_t *s_lbl_m_vmax, *s_lbl_m_vmin, *s_lbl_m_vrms, *s_lbl_m_per, *s_lb
 static lv_obj_t *s_lbl_m_vamp, *s_lbl_m_vavg, *s_lbl_m_rise;
 static lv_obj_t *s_lbl_cur_t1, *s_lbl_cur_t2, *s_lbl_cur_dt, *s_lbl_cur_idt;
 static lv_obj_t *s_lbl_cur_v1, *s_lbl_cur_v2, *s_lbl_cur_dv;
-static lv_obj_t *s_lbl_fft_peakf, *s_lbl_fft_peakl, *s_lbl_fft_floor, *s_lbl_fft_win;
-static lv_obj_t *s_lbl_lock_ref, *s_lbl_lock_amp, *s_lbl_lock_phase, *s_lbl_lock_tau;
+static lv_obj_t *s_lbl_fft_peakf, *s_lbl_fft_peakl, *s_lbl_fft_floor, *s_lbl_fft_win,*s_lbl_fft_res;
+static lv_obj_t *s_lbl_lock_ref, *s_lbl_lock_amp, *s_lbl_lock_phase;
 static lv_obj_t *s_lbl_lock_state;      /* 锁定状态（● 锁定 / ○ 原因） */
 static lv_obj_t *s_lbl_lock_raw;        /* 原始诊断（未认证）行，usable=0 时才显示 */
 static lv_obj_t *s_lbl_ai_stat;
@@ -171,7 +191,7 @@ static lv_obj_t *s_lbl_fps, *s_lbl_uptime;
 static lv_obj_t *s_lbl_v32_rate, *s_lbl_v32_loss;   /* FPGA 链路实时统计 */
 static lv_obj_t *s_lbl_clock, *s_lbl_run_status;
 
-static lv_obj_t *s_chip_ch1, *s_chip_ch2, *s_chip_ai, *s_chip_run;
+static lv_obj_t *s_chip_ch1, *s_chip_ch2, *s_chip_ai, *s_chip_run, *s_chip_auto;
 static lv_obj_t *s_dd_freq;
 static lv_obj_t *s_lbl_den_title;
 static lv_obj_t *s_lbl_recon_badge;      /* 示波器页右上角「重建」牌 */
@@ -184,8 +204,6 @@ static lv_obj_t *s_chip_trig, *s_chip_edge, *s_chip_lev;
    把控制条塞满、「暂停」被挤出屏幕外。这里显式管起来。 */
 static lv_obj_t *s_g_win, *s_g_tau, *s_g_ai, *s_g_sys;   /* 触发选择芯片 */
 static lv_obj_t *s_chip_math;   /* Math 选择芯片 */
-static lv_obj_t *s_chip_mod;    /* 调制模式选择芯片（AA5 SET_MODULATION） */
-static lv_obj_t *s_chip_demod; /* 示波器页解调显示开关（右栏通道面板第二行） */
 /* ===== 调制分析页（交付包 603695b2：V32ANA1! + A5 E0..E5 命令族）===== */
 static lv_obj_t *s_plot_modraw;   /* 上图：RAW 原始波形 */
 static lv_obj_t *s_plot_modana;   /* 下图：分析曲线 / 星座轨迹 */
@@ -197,6 +215,23 @@ static lv_obj_t *s_lbl_rawnote;   /* 上图 RAW 新鲜度标注（实时/历史�
 static lv_obj_t *s_lbl_modraw_title;   /* 上图标题（原始波形/分析历史 切换） */
 static lv_obj_t *s_lbl_modana_title, *s_lbl_modana_note, *s_lbl_modraw_units, *s_lbl_modana_units, *s_lbl_modvalue_key;
 static lv_obj_t *s_lbl_modcarrier;
+static lv_obj_t *s_lbl_moddecision_key;
+static lv_obj_t *s_lbl_modbaud,*s_lbl_ook_info,*s_lbl_ook_bits,*s_chip_ook_on,*s_chip_ook_baud,*s_chip_ook_test;
+static ook_decoder_t s_ook;
+static bpsk_decoder_t s_bpsk;
+static image_receiver_t s_image;
+static bool s_image_enabled=false;
+static lv_obj_t *s_image_canvas,*s_image_status,*s_image_info,*s_image_link;
+#define IMAGE_CANVAS_WIDTH 704
+#define IMAGE_CANVAS_HEIGHT 384
+static uint16_t s_image_pixels[IMAGE_CANVAS_WIDTH*IMAGE_CANVAS_HEIGHT];
+static uint32_t s_image_drawn_revision=UINT32_MAX,s_image_packet_ms;
+static uint64_t s_image_packets_seen;
+static bool s_bpsk_invert=false,s_bpsk_symbols=true;
+static lv_obj_t *s_chip_bpsk_inv,*s_chip_bpsk_view;
+static bool s_ook_on=true,s_ook_test=false;
+static unsigned s_ook_rate=3;
+static const int OOK_RATES[5]={100,250,500,1000,2000};
 static lv_obj_t *s_chip_mv, *s_chip_mw;
 static bool s_mod_raw_view = false;
 static unsigned s_mod_window = 0;
@@ -214,6 +249,8 @@ static ana_history_t s_history;
 #define s_aroll_len s_history.length
 static uint32_t s_an_target_fcw;
 static int s_an_have_target, s_an_tx_failed;
+static int s_an_retune_error, s_an_override;
+static uint32_t s_an_override_fcw;
 static lv_obj_t *s_chip_mt, *s_chip_mc, *s_chip_mr;  /* 制式/通道/档位 芯片 */
 /* 当前下发的分析配置（回显匹配以此为准）：
  * type 0=关 1AM 2FM 3FSK 4QPSK 5OOK 6BPSK 7PM（A5 E0 枚举） */
@@ -221,6 +258,8 @@ static int s_an_type = 0, s_an_ch = 0, s_an_rate = 1;   /* rate 0/1/2 = 8192/409
 
 
 
+static bool s_fft_raw_source; /* Window selection uses RAW; hardware SPEC is fixed Hann. */
+static lv_obj_t *s_chip_spec_source;
 static lv_obj_t *s_chip_win;            /* 窗函数：循环切换芯片（这个 UI 里下拉框点不开） */
 static lv_obj_t *s_chip_fch[3];          /* 频谱通道：自动/CH1/CH2 */               /* 窗函数下拉框，复位时要回位 */        /* 「FFT 频谱 · CH1」标题 */          /* 频谱页游标读数 */
 static float     s_fft_cur_x;            /* 0..1，游标横坐标 */
@@ -242,12 +281,20 @@ static lv_obj_t *s_ctrl_grp[UI_PAGE_COUNT];   /* 页内参数的 5 个变体 */
 static lv_obj_t *s_top, *s_ctrlbar, *s_navbar;
 
 /* 事件回调前置声明：页面构造函数（build_scope 等）写在回调定义之前 */
-static void cb_demod_toggle(lv_event_t *e);
 static void cb_an_type(lv_event_t *e);
 static void cb_an_ch(lv_event_t *e);
 static void cb_an_rate(lv_event_t *e);
 static void cb_mod_view(lv_event_t *e);
 static void cb_mod_window(lv_event_t *e);
+static void cb_ook_on(lv_event_t *e);
+static void cb_ook_baud(lv_event_t *e);
+static void cb_ook_test(lv_event_t *e);
+static void cb_image_mode(lv_event_t *e);
+static void cb_image_clear(lv_event_t *e);
+static void analysis_apply(int type,int ch,int rate);
+static void an_chips_refresh(void);
+static void cb_bpsk_inv(lv_event_t *e);
+static void cb_bpsk_view(lv_event_t *e);
 static void cb_ch1(lv_event_t *e);
 static void cb_ch2(lv_event_t *e);
 
@@ -296,7 +343,7 @@ static lv_obj_t *mk_label(lv_obj_t *parent, int x, int y, const char *txt,
 /* .panel-title{ font-size:11px; letter-spacing:1px; color:#8ca6bf } */
 static lv_obj_t *mk_title(lv_obj_t *parent, int x, int y, const char *txt)
 {
-    lv_obj_t *l = mk_label(parent, x, y, txt, V32_FONT_SMALL, V32_C_PANEL_TITLE);
+    lv_obj_t *l = mk_label(parent, x, y, txt, V32_FONT_BASE_B, V32_C_PANEL_TITLE);
     lv_obj_set_style_text_letter_space(l, 1, LV_PART_MAIN);
     return l;
 }
@@ -312,8 +359,8 @@ static lv_obj_t *mk_title(lv_obj_t *parent, int x, int y, const char *txt)
  *   （5 行读数全部一致，是系统性偏移而不是随机误差）
  * 跨字体硬算 ascent/descent 很容易差几像素，量出来最准。
  */
-#define V32_METRIC_LABEL_DY   4
-#define V32_METRIC_VALUE_DY   1
+#define V32_METRIC_LABEL_DY   0
+#define V32_METRIC_VALUE_DY   0
 
 /* .metric —— 左灰标题、右大字读数 */
 static lv_obj_t *mk_metric(lv_obj_t *parent, int y, const char *name,
@@ -342,10 +389,10 @@ static lv_obj_t *mk_kv(lv_obj_t *parent, int y, int w, const char *key,
     lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
     lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
 
-    lv_obj_t *k = mk_label(row, 0, 0, key, V32_FONT_SMALL, V32_C_KV_KEY);
+    lv_obj_t *k = mk_label(row, 0, 0, key, V32_FONT_BASE, V32_C_KV_KEY);
     lv_obj_align(k, LV_ALIGN_LEFT_MID, 0, 0);
 
-    lv_obj_t *v = mk_label(row, 0, 0, val, V32_FONT_SMALL_B, val_color);
+    lv_obj_t *v = mk_label(row, 0, 0, val, V32_FONT_BIG_B, val_color);
     lv_obj_align(v, LV_ALIGN_RIGHT_MID, 0, 0);
     return v;
 }
@@ -574,6 +621,10 @@ static int      s_spec_in_use;              /* 1 = 当前画的是 FPGA 的谱 *
 static float    s_spec_peak_hz;
 static int      s_spec_win, s_spec_bins, s_spec_nfft;
 static float    s_spec_fs_eff;
+static float s_real_fft_fs=65000000.f;
+static v32_spec_view_t s_spec_snapshot;
+static float s_spec_floor_dbfs;
+static int s_spec_floor_unresolved,s_spec_has_peak;
 static int      s_spec_stale;        /* 有帧但已过期 */      /* 本帧频谱的等效采样率（逐帧变化！） */
 
 /*
@@ -705,6 +756,7 @@ static float phase_diff_deg(const float *x0, const float *x1, int n,
 }
 
 static void update_axis_label(void);
+static void vg_label(void);
 static void cb_scope_touch(lv_event_t *e);
 static void trig_refresh(void);   /* 光标拖动：build_scope 里注册，定义在后面 */
 static void sync_timebase_dd(float us_div);
@@ -942,15 +994,26 @@ static void auto_decimation(void)
     static int      s_blind;      /* 连续「测不准」而加大抽取的次数 */
     static float    s_last_f;
 
-    if(s_tb_manual) return;                      /* 手动时基：抽取由 tb_apply 管 */
-    if(!S.use_real || s_real_peak_hz <= 0.0f || s_full_n < 2) return;
+    if(!S.use_real || s_full_n < 2) return;
 
     const int cur = v32_last_decimation();
     if(cur <= 0) return;                       /* 还没收到过帧 */
 
+    float carrier=s_real_peak_hz;
+    int trusted=0;
+    v32_meas_view_t measured;
+    if(v32_get_meas(&measured) && measured.fft_valid){
+        /* RAW decimation is shared by both channels: protect the faster input,
+           even when the spectrum selector is focused on the slower one. */
+        uint32_t hz=(measured.fft_valid&1)?measured.fft_hz0:0;
+        if((measured.fft_valid&2) && measured.fft_hz1>hz)hz=measured.fft_hz1;
+        if(hz>0 && hz<V32_ADC_FS_HZ/2u){carrier=(float)hz;trusted=1;}
+    }
+    if(carrier<=0)return;
+
     /* 频率大幅变化 -> 重新允许尝试 */
     if(s_last_f <= 0.0f ||
-       s_real_peak_hz > s_last_f * 2.0f || s_real_peak_hz < s_last_f * 0.5f)
+       carrier > s_last_f * 2.0f || carrier < s_last_f * 0.5f)
         s_tries = 0;
 
     const uint32_t now = lv_tick_get();
@@ -960,9 +1023,7 @@ static void auto_decimation(void)
     const float fs_eff = (src && src->sample_rate > 0) ? (float)src->sample_rate : 0.0f;
     if(fs_eff <= 0.0f) return;
 
-    float periods = s_real_peak_hz * (float)s_full_n / fs_eff;
-
-    int want = cur;
+    float periods = carrier * (float)s_full_n / fs_eff;
 
     /*
      * 先判断"这一帧到底测不测得准"。
@@ -975,21 +1036,18 @@ static void auto_decimation(void)
      * 直到能测出真实频率（或者已经到 256 上限）。
      */
     const float margin = s_real_peak_dbfs - s_real_floor_dbfs;
-    if(margin < 15.0f) {
-        if(cur < 256 && s_blind < 9) { want = cur << 1; s_blind++; }
-    } else {
-        s_blind = 0;
-        while(periods < 2.0f && want < 256) { want <<= 1; periods *= 2.0f; }
-        while(periods > 30.0f && want > 1)  { want >>= 1; periods *= 0.5f; }
-    }
+    int low_ac=fmaxf(s_real_vpp0_mv,s_real_vpp1_mv)<=2.f*V32_ADC_MV_PER_LSB;
+    int want=scope_decimation_target(V32_ADC_FS_HZ,s_full_n,cur,carrier,trusted,margin,s_tb_manual,low_ac);
+    if(!trusted && margin<15.f && want>cur){if(s_blind>=9)want=cur;else s_blind++;}
+    else s_blind=0;
 
     s_next_ms = now + 800;
-    s_last_f  = s_real_peak_hz;
+    s_last_f  = carrier;
 
     if(want == cur) { s_tries = 0; return; }   /* 已经合适（或已生效） */
     if(dbg_on())
         fprintf(stderr, "[adec] f=%.0f Hz periods=%.1f -> dec %d->%d (第 %d 次)\n",
-                (double)s_real_peak_hz, (double)periods, cur, want, s_tries + 1);
+                (double)carrier, (double)periods, cur, want, s_tries + 1);
     if(s_tries >= 3) return;                   /* 对面不认命令，别再发 */
     if(v32_send_decimation(want) == 0) s_tries++;
 }
@@ -1094,10 +1152,15 @@ static float s_cur_x[2] = { 0.30f, 0.70f };
 static float s_cur_y[2] = { 0.35f, 0.65f };
 
 static int   s_trig_mode, s_trig_edge;
-static float s_trig_lev = 0.5f;
+static float s_trig_counts=NAN,s_vertical_offset[2];
+static int s_single_armed,s_single_done,s_trig_wait,s_trig_hit,s_move_channel;
+static uint32_t s_single_baseline;
+static lv_obj_t *s_chip_single,*s_chip_move,*s_math_note;
+static void cb_single(lv_event_t *e);
+static void cb_move_channel(lv_event_t *e);
 
-static int   s_math_mode = 2;    /* 0=关 1=A+B 2=A-B 3=A×B 4=A÷B 5=XY（默认 A-B） */
-static float s_math[PLOT_MAX_PTS];
+static int   s_math_mode = 0;    /* 0=OFF, 1=A+B, 2=A-B, 3=A*B, 4=A/B, 5=XY */
+static float s_math[WAVE_MAX_FRAME];
 static float s_math_y[PLOT_MAX_PTS];
 /*
  * 「零帧」检测：波形帧两路 min/max 各差 <=1 码连续 30 帧，就认为 FPGA
@@ -1126,8 +1189,6 @@ static int   s_roll_R = 1;             /* 记录抽取：帧内 R 点压成 1 �
 /* 解调 I/Q 滚动缓冲：解调点率恒定（fs/decim），直接整帧追加、无需抽取。
  * 深时基档（窗口 > 一帧 16ms）从这取最近一段 —— 时基全程有效，
  * 不再「到 1ms 就到顶、点了没变化」。等效时间语义与波形 roll 相同。 */
-static int16_t s_riq_i[ROLL_N], s_riq_q[ROLL_N];
-static int     s_riq_len;
 
 /* 追加一对极值桶点（min 在前 max 在后，与 map_window 分桶的时序约定一致）。
  * 缓冲满时丢掉前半段（memmove），比环形回绕好读也好写。 */
@@ -1147,20 +1208,25 @@ static void roll_push(float a0, float a1, float b0, float b1)
  * 滚动缓冲 -> 屏幕映射：取最近 s_roll_len 点，min/max 分桶到 n 点，
  * 两路**联合**归一（和帧模式同一个哲学：CH1/CH2 共刻度，谁大谁小是真的）。
  */
+/* One calibration is shared by frame data, roll extrema, ticks and cursors. */
+static void scope_scale_refresh(void)
+{
+    if(s_full_n<2)return;
+    const float *a=s_full0,*b=s_full1;int count=s_full_n;
+    if(s_zoom_span>s_full_n && s_roll_len>=4){a=s_roll0;b=s_roll1;count=s_roll_len;}
+    float lo=a[0],hi=a[0];
+    for(int i=0;i<count;i++){if(a[i]<lo)lo=a[i];if(a[i]>hi)hi=a[i];if(b[i]<lo)lo=b[i];if(b[i]>hi)hi=b[i];}
+    if(s_vdiv_mv>0.f){
+        if(s_vdiv_mv<10.f)s_vdiv_mv=10.f;if(s_vdiv_mv>5000.f)s_vdiv_mv=5000.f;
+        float full=s_vdiv_mv*V32_GRID_Y/V32_ADC_MV_PER_LSB;
+        s_real_lo=-full*.5f;s_real_sc=1.f/full;
+    }else scope_auto_range(lo,hi,&s_real_lo,&s_real_sc);
+    s_gain=1.f;
+}
+
 static void map_roll(float *a, float *b, int n)
 {
     if(s_roll_len < 4 || n < 8) return;
-    float mn = 1e30f, mx = -1e30f;
-    for(int i = 0; i < s_roll_len; i++) {
-        if(s_roll0[i] < mn) mn = s_roll0[i];
-        if(s_roll0[i] > mx) mx = s_roll0[i];
-        if(s_roll1[i] < mn) mn = s_roll1[i];
-        if(s_roll1[i] > mx) mx = s_roll1[i];
-    }
-    float span = mx - mn;
-    if(span < 1e-3f) span = 1e-3f;
-    const float sc = 1.0f / span;
-
     const int buckets = n / 2;
     for(int bk = 0; bk < buckets; bk++) {
         const int st = (int)((long)bk * s_roll_len / buckets);
@@ -1175,13 +1241,76 @@ static void map_roll(float *a, float *b, int n)
             if(s_roll1[k] > s_roll1[iB]) iB = k;
         }
         /* 极值按时间先后输出（和 map_window 一样，避免画成锯齿） */
-        const float va0 = (s_roll0[ia < iA ? ia : iA] - mn) * sc;
-        const float va1 = (s_roll0[ia < iA ? iA : ia] - mn) * sc;
-        const float vb0 = (s_roll1[ib < iB ? ib : iB] - mn) * sc;
-        const float vb1 = (s_roll1[ib < iB ? iB : ib] - mn) * sc;
+        const float va0 = (s_roll0[ia < iA ? ia : iA] - s_real_lo) * s_real_sc;
+        const float va1 = (s_roll0[ia < iA ? iA : ia] - s_real_lo) * s_real_sc;
+        const float vb0 = (s_roll1[ib < iB ? ib : iB] - s_real_lo) * s_real_sc;
+        const float vb1 = (s_roll1[ib < iB ? iB : ib] - s_real_lo) * s_real_sc;
         a[2 * bk] = va0; a[2 * bk + 1] = va1;
         b[2 * bk] = vb0; b[2 * bk + 1] = vb1;
     }
+}
+
+static void real_compute_fft(int fn,float rate)
+{
+    s_real_fft_fs=rate;
+    /* ③ 频谱。默认用**交流成分大的那一路**（另一路可能没接或只有直流，
+     *    拿它算频率会得到一个恒在 bin 1 的假读数）；
+     *    也可以在频谱页手动指定 CH1 / CH2 —— 两路都接了的时候必须能选，
+     *    否则界面上根本看不出这条谱是谁的。 */
+    int use_ch;
+    if(S.fft_ch == 1)      use_ch = 0;
+    else if(S.fft_ch == 2) use_ch = 1;
+    else                   use_ch = (s_real_vpp1_mv >= s_real_vpp0_mv) ? 1 : 0;
+    s_real_fft_ch = use_ch;
+    const float *spec_src = use_ch ? s_full1 : s_full0;
+
+    /*
+     * 先去掉直流再算谱。
+     *
+     * ADC 有零点偏置，不过去的话 bin 0 永远是全场最大 —— 后果有两个：
+     *   1. 频谱左边缘立着一根直流尖峰，把真正关心的信号压得看不见；
+     *   2. fetch_spectrum() 从 i=0 开始找峰值，▼ 箭头永远钉在原点。
+     *      （频率读数看着是对的，因为它从 bin 1 开始搜；错的是箭头和画面。）
+     * 示波器的频谱本来就是交流耦合的，先减均值是标准做法。
+     */
+    float center_bin = 0.f;
+    {
+        static float s_fft_tmp[WAVE_MAX_FRAME];
+        static float hann_mag[REAL_FFT_N/2];
+        double sum = 0.0;
+        for(int i = 0; i < fn; i++) sum += (double)spec_src[i];
+        const float mean = (float)(sum / (double)fn);
+        for(int i = 0; i < fn; i++) s_fft_tmp[i] = spec_src[i] - mean;
+        /* Same frozen samples, independent Hann center estimate. Hann itself
+         * needs one FFT; other windows add one for frequency localization. */
+        float *frequency_mag = S.win_idx==FFT_WIN_HANN ? s_real_mag : hann_mag;
+        fft_magnitude_spectrum_zero_win(s_fft_tmp,fn,REAL_FFT_N,FFT_WIN_HANN,frequency_mag);
+        center_bin=fft_hann_peak_bin(frequency_mag,REAL_FFT_N/2);
+        if(S.win_idx!=FFT_WIN_HANN)
+            fft_magnitude_spectrum_zero_win(s_fft_tmp, fn, REAL_FFT_N,
+                                            (fft_win_t)S.win_idx, s_real_mag);
+    }
+    s_real_bins = REAL_FFT_N / 2;
+
+    int pk = (int)center_bin;
+    if(pk<0)pk=0;
+    if(pk>=s_real_bins-1)pk=s_real_bins-2;
+    const float fraction=center_bin-pk;
+    /* Selected-window amplitude at the estimated component center. A broader
+     * FlatTop lobe must not select a different frequency or a different tone. */
+    const float center_mag=s_real_mag[pk]+fraction*(s_real_mag[pk+1]-s_real_mag[pk]);
+    s_real_peak_hz   = center_bin * rate / (float)REAL_FFT_N;
+    if(dbg_on())
+        fprintf(stderr, "[fft] ch=CH%d(vpp %.0f/%.0f mV, sel=%d) pk_bin=%d (%.3f MHz) mag=%.1f\n",
+                s_real_fft_ch+1, (double)s_real_vpp0_mv, (double)s_real_vpp1_mv, S.fft_ch,
+                pk, (double)s_real_peak_hz/1e6, (double)s_real_mag[pk]);
+    s_real_peak_dbfs = 20.0f * log10f((center_mag + 1e-9f) / REAL_FULLSCALE_COUNTS);
+    s_real_floor_dbfs = 20.0f * log10f((noise_floor_mag(s_real_mag, s_real_bins) + 1e-9f)
+                                       / REAL_FULLSCALE_COUNTS);
+    s_real_phase_deg = phase_diff_deg(s_full0, s_full1, fn, s_real_peak_hz, (float)rate);
+
+    /* 波形类型：判据只用前三次谐波的比例，见 classify_wave() */
+    classify_wave();
 }
 
 static void real_update(void)
@@ -1232,6 +1361,34 @@ static void real_update(void)
     const int fn = src->read_frame2(f0, f1, src->frame_len);
     if(fn < 64) return;
 
+    s_trig_wait=0;
+    int triggered_start=-1;
+    if(S.page==UI_PAGE_SCOPE && (s_trig_mode || s_single_armed)){
+        int span=s_zoom_span>0 && s_zoom_span<fn?s_zoom_span:fn-fn/4;
+        if(span>fn-fn/4)span=fn-fn/4;
+        if(!isfinite(s_trig_counts)){
+            float lo=f0[0],hi=f0[0];for(int i=1;i<fn;i++){if(f0[i]<lo)lo=f0[i];if(f0[i]>hi)hi=f0[i];}
+            s_trig_counts=(lo+hi)*.5f;
+        }
+        triggered_start=scope_trigger_start(f0,fn,span,s_trig_counts,s_trig_edge);
+        s_trig_hit=triggered_start>=0;
+        if((s_trig_mode==2 || s_single_armed) && (!s_trig_hit || (s_single_armed && st->last_frame_id==s_single_baseline))){
+            s_trig_wait=1;s_real_valid=s_full_n>=2;return;
+        }
+        s_zoom_span=span;
+    }
+    /* A rate change invalidates every old roll sample's time coordinate.
+       Re-evaluate automatic timebase only after a fresh frame at the new rate. */
+    {
+        static int previous_dec;
+        int dec=v32_last_decimation();
+        if(previous_dec>0 && dec>0 && previous_dec!=dec){
+            s_roll_len=0;
+            if(!s_tb_manual)s_tb_autodone=0;
+        }
+        if(dec>0)previous_dec=dec;
+    }
+
     /* 存一份整帧，供缩放窗口重采样 */
     if(fn <= WAVE_MAX_FRAME) {
         memcpy(s_full0, f0, (size_t)fn * sizeof(float));
@@ -1265,45 +1422,7 @@ static void real_update(void)
         if(d1[i] > b_hi) b_hi = d1[i];
     }
 
-    /* ===== 触发：把触发点钉在屏幕左侧 20% 处 =====
-     * 用 armed 方式找穿越点：先出现"明确在电平另一侧"的样点才算武装，
-     * 之后第一次穿过电平就是触发点。
-     * （**不要**写成"相邻两点必须跨过 lv±hys"——采样率低时一个周期内
-     *  样点跳不过 2×hys，那会变成一次也触发不到，之前踩过这个坑。）
-     */
-    /*
-     * 触发只挪**示波器页**的窗口。
-     * 重建页有它自己的 auto-fit 取窗（框到 10 个周期），频谱页也各有各的窗口；
-     * 两处同时写 s_zoom_start 会互相把对方的窗口拉回去 —— 表现就是
-     * "一开触发，重建页的重建就没了"（其实每帧都在重算，窗口在跳）。
-     */
-    if(s_trig_mode && S.page == UI_PAGE_SCOPE && fn > 8) {
-        float lo = s_full0[0], hi = s_full0[0];
-        for (int i = 1; i < fn; i++) {
-            if (s_full0[i] < lo) lo = s_full0[i];
-            if (s_full0[i] > hi) hi = s_full0[i];
-        }
-        if (hi - lo > 1.0f) {
-            const float lv = lo + (hi - lo) * s_trig_lev;
-            int armed = 0, ti = -1;
-            for (int i = 1; i < fn; i++) {
-                if (s_trig_edge == 0) {
-                    if (s_full0[i-1] <= lv) armed = 1;
-                    if (armed && s_full0[i] >= lv) { ti = i; break; }
-                } else {
-                    if (s_full0[i-1] >= lv) armed = 1;
-                    if (armed && s_full0[i] <= lv) { ti = i; break; }
-                }
-            }
-            const int span = (s_zoom_span > 0 && s_zoom_span <= fn) ? s_zoom_span : fn;
-            if (ti >= 0) {
-                int st = ti - (int)((float)span * 0.2f);
-                if (st < 0) st = 0;
-                if (st > fn - span) st = fn - span;
-                s_zoom_start = st;
-            }
-        }
-    }
+    if(triggered_start>=0)s_zoom_start=triggered_start;
 
     /* 有了样点就算全套测量（跟绘图共用同一帧，读数不会跟波形对不上） */
     {
@@ -1320,17 +1439,6 @@ static void real_update(void)
      * A÷B 除零保护：分母绝对值 < 2 码（约 5 mV）按 0 处理，
      * 否则噪声过零时会画出一条撑满全屏的竖线，把整屏糊掉。
      */
-    if(s_math_mode >= 1 && s_math_mode <= 4) {
-        for(int i = 0; i < fn; i++) {
-            const float a = s_full0[i], b = s_full1[i];
-            switch(s_math_mode) {
-                case 1:  s_math[i] = a + b; break;
-                case 2:  s_math[i] = a - b; break;
-                case 3:  s_math[i] = a * b; break;
-                default: s_math[i] = (fabsf(b) < 2.0f) ? 0.0f : a / b; break;
-            }
-        }
-    }
 
     s_real_vpp0_mv = (a_hi - a_lo) * V32_ADC_MV_PER_LSB;
     s_real_vpp1_mv = (b_hi - b_lo) * V32_ADC_MV_PER_LSB;
@@ -1357,8 +1465,7 @@ static void real_update(void)
             s_real_lo = mid2 - full * 0.5f;
             s_real_sc = 1.0f / full;
         } else {
-            s_real_lo = mn - span * 0.05f;
-            s_real_sc = 1.0f / (span * 1.10f);
+            scope_auto_range(mn,mx,&s_real_lo,&s_real_sc);
         }
     }
 
@@ -1366,53 +1473,7 @@ static void real_update(void)
     memcpy(s_real_d1, d1, (size_t)dn * sizeof(float));
     s_real_n = dn;
 
-    /* ③ 频谱。默认用**交流成分大的那一路**（另一路可能没接或只有直流，
-     *    拿它算频率会得到一个恒在 bin 1 的假读数）；
-     *    也可以在频谱页手动指定 CH1 / CH2 —— 两路都接了的时候必须能选，
-     *    否则界面上根本看不出这条谱是谁的。 */
-    int use_ch;
-    if(S.fft_ch == 1)      use_ch = 0;
-    else if(S.fft_ch == 2) use_ch = 1;
-    else                   use_ch = (s_real_vpp1_mv >= s_real_vpp0_mv) ? 1 : 0;
-    s_real_fft_ch = use_ch;
-    const float *spec_src = use_ch ? f1 : f0;
-
-    /*
-     * 先去掉直流再算谱。
-     *
-     * ADC 有零点偏置，不过去的话 bin 0 永远是全场最大 —— 后果有两个：
-     *   1. 频谱左边缘立着一根直流尖峰，把真正关心的信号压得看不见；
-     *   2. fetch_spectrum() 从 i=0 开始找峰值，▼ 箭头永远钉在原点。
-     *      （频率读数看着是对的，因为它从 bin 1 开始搜；错的是箭头和画面。）
-     * 示波器的频谱本来就是交流耦合的，先减均值是标准做法。
-     */
-    {
-        static float s_fft_tmp[WAVE_MAX_FRAME];
-        double sum = 0.0;
-        for(int i = 0; i < fn; i++) sum += (double)spec_src[i];
-        const float mean = (float)(sum / (double)fn);
-        for(int i = 0; i < fn; i++) s_fft_tmp[i] = spec_src[i] - mean;
-        fft_magnitude_spectrum_zero_win(s_fft_tmp, fn, REAL_FFT_N,
-                                        (fft_win_t)S.win_idx, s_real_mag);
-    }
-    s_real_bins = REAL_FFT_N / 2;
-
-    int pk = 1;
-    for(int i = 2; i < s_real_bins; i++)
-        if(s_real_mag[i] > s_real_mag[pk]) pk = i;
-
-    s_real_peak_hz   = (float)pk * (float)src->sample_rate / (float)REAL_FFT_N;
-    if(dbg_on())
-        fprintf(stderr, "[fft] ch=CH%d(vpp %.0f/%.0f mV, sel=%d) pk_bin=%d (%.3f MHz) mag=%.1f\n",
-                s_real_fft_ch+1, (double)s_real_vpp0_mv, (double)s_real_vpp1_mv, S.fft_ch,
-                pk, (double)s_real_peak_hz/1e6, (double)s_real_mag[pk]);
-    s_real_peak_dbfs = 20.0f * log10f((s_real_mag[pk] + 1e-9f) / REAL_FULLSCALE_COUNTS);
-    s_real_floor_dbfs = 20.0f * log10f((noise_floor_mag(s_real_mag, s_real_bins) + 1e-9f)
-                                       / REAL_FULLSCALE_COUNTS);
-    s_real_phase_deg = phase_diff_deg(f0, f1, fn, s_real_peak_hz, (float)src->sample_rate);
-
-    /* 波形类型：判据只用前三次谐波的比例，见 classify_wave() */
-    classify_wave();
+    real_compute_fft(fn,(float)src->sample_rate);
 
     s_real_fid   = st->last_frame_id;
     /*
@@ -1443,6 +1504,10 @@ static void real_update(void)
     s_real_t_last = lv_tick_get();
     s_real_valid = true;
 
+    if(s_single_armed && S.page==UI_PAGE_SCOPE && s_trig_hit){
+        s_single_armed=0;s_single_done=1;S.running=false;
+        chip_set_text(s_chip_run,"▶ 运行");chip_set_text(s_chip_single,"已触发");
+    }
     if(S.auto_fit && S.page == UI_PAGE_AI) auto_fit_apply(fn);
     auto_decimation();
 }
@@ -1521,8 +1586,6 @@ static void map_window(const float *src, int src_n, float *y01, int n, bool bl)
         float y = (y01[i] - s_real_lo) * s_real_sc;
         /* 纵向增益绕中线展开：gain>1 放大（波形超出屏幕就削顶，和示波器一样） */
         y = 0.5f + (y - 0.5f) * s_gain;
-        if(y < 0.f) y = 0.f;
-        if(y > 1.f) y = 1.f;
         y01[i] = y;
     }
 }
@@ -1615,20 +1678,6 @@ static void update_axis_label(void)
     float fs = (src && src->sample_rate > 0) ? (float)src->sample_rate : 1.0f;
     int   span = s_zoom_span > 0 ? s_zoom_span
                                  : ((src && src->frame_len > 0) ? src->frame_len : V32_POINTS);
-    /* 解调模式：fs/span 换成解调帧的（fs_iq、按 TB 档的窗口点数，超帧 cap）。
-       不换的话时基读数按 65 MHz 波形帧折算 —— 差 decim(4096) 倍，全是错的。 */
-    {
-        v32_iq_view_t ivq;
-        if(S.use_real && v32_get_iq(&ivq) && ivq.points >= 2u && ivq.decim) {
-            fs = (float)ivq.fs_hz / (float)ivq.decim;
-            span = (int)(TB_US[s_tb_idx] * 1e-6f * 10.0f * fs + 0.5f);
-            /* 深档由滚动缓冲支撑：窗口上限=已拼接的点数（一帧起） */
-            {
-                const int mx = (s_riq_len > (int)ivq.points) ? s_riq_len : (int)ivq.points;
-                if(span > mx) span = mx;
-            }
-        }
-    }
     const float us_div = (float)span / fs * 1e6f / (float)V32_GRID_X;
 
     /* 绘图区刻度文字（照 HTML 原型）：底部 6 个时间刻度、左侧 5 个电压刻度 */
@@ -1640,13 +1689,15 @@ static void update_axis_label(void)
             const float t = (float)(i * 2 - V32_GRID_X / 2) * us_div;      /* µs */
             if(fabsf(t) < 0.005f)      snprintf(xb[i], 12, "0");
             else if(fabsf(t) < 1.f)    snprintf(xb[i], 12, "%.0fns", (double)(t * 1000.f));
+            else if(fabsf(t) < 10.f)   snprintf(xb[i], 12, "%.2fµs", (double)t);
             else if(fabsf(t) < 1000.f) snprintf(xb[i], 12, "%.0fµs", (double)t);
             else if(fabsf(t) < 1e6f)   snprintf(xb[i], 12, "%.1fms", (double)(t / 1000.f));
             else                       snprintf(xb[i], 12, "%.1fs",  (double)(t / 1e6f));
             xp[i] = xb[i];
         }
         for(int j = 0; j < 5; j++) {
-            const float v = (float)(V32_GRID_Y / 2 - j * 2) * mvdiv;       /* mV */
+            const float center_mv=(s_real_lo+.5f/s_real_sc-s_vertical_offset[s_move_channel]/(s_real_sc*s_gain))*V32_ADC_MV_PER_LSB;
+            const float v = center_mv+(float)(V32_GRID_Y / 2 - j * 2) * mvdiv;
             if(fabsf(v) < 0.5f)         snprintf(yb[j], 12, "0");
             else if(fabsf(v) < 1000.f)  snprintf(yb[j], 12, "%.0fmV", (double)v);
             else                        snprintf(yb[j], 12, "%.2fV", (double)(v / 1000.f));
@@ -1668,27 +1719,11 @@ static void update_axis_label(void)
             snprintf(segs[n].txt, sizeof segs[n].txt, "%s", (s_)); \
             segs[n].color = (c_); n++; } while(0)
 
-        if(s_zero_on) V32_SEG("●零帧 ", V32_C_WARN);
+        if(s_zero_on) V32_SEG("LOW AC ", V32_C_WARN);
         /* 无新帧：链路活着与否看这里 —— 0 fps 时波形是最后一帧的残影，
            不标出来会和「正常的深时基」混淆（FPGA 改动停发时踩过）。 */
         if(S.use_real && !s_real_valid) V32_SEG("○无新帧 ", V32_C_WARN);
         if(!S.running) V32_SEG("⏸已冻结 ", V32_C_WARN);
-
-        /*
-         * 调制模式提示：FPGA 切到调制后停发 V32CAP3! 波形帧，示波器页
-         * 只剩冻结的最后一屏 —— 不标出来，看起来和"串口断了"一模一样。
-         * IQ 帧新鲜就说明链路活着，只是不在发波形。
-         */
-        {
-            v32_iq_view_t ivq;
-            if(v32_get_iq(&ivq)) {
-                char mb[24];
-                snprintf(mb, sizeof mb, "●解调·%s ",
-                         (s_mod_idx >= 0 && s_mod_idx < V32_MOD_COUNT)
-                             ? MOD_NAME[s_mod_idx] : "?");
-                V32_SEG(mb, V32_C_WARN);
-            }
-        }
 
         if(s_real_sc > 0.f) {
             const float mv = (1.0f / s_real_sc) / (float)V32_GRID_Y / s_gain * V32_ADC_MV_PER_LSB;
@@ -1715,7 +1750,7 @@ static void update_axis_label(void)
         V32_SEG(tr, V32_C_TRIGGER);
         if(s_trig_mode != 0 && s_real_sc > 0.f && s_m1.vmax > s_m1.vmin) {
             const float k3 = V32_ADC_MV_PER_LSB / 1000.0f;
-            const float lvv = (s_m1.vmin + (s_m1.vmax - s_m1.vmin) * s_trig_lev) * k3;
+            const float lvv = s_trig_counts * k3;
             fmt_mv(lv, sizeof lv, lvv * 1000.f);
             V32_SEG(" ", V32_C_TRIGGER);
             V32_SEG(lv, V32_C_TRIGGER);
@@ -1810,11 +1845,10 @@ void ui_pinch_zoom(float scale, float anchor)
 void ui_pinch_gain(float ratio)
 {
     if(ratio <= 0.f) return;
-    s_gain *= ratio;
-    if(s_gain < ZOOM_GAIN_MIN) s_gain = ZOOM_GAIN_MIN;
-    if(s_gain > ZOOM_GAIN_MAX) s_gain = ZOOM_GAIN_MAX;
-    S.auto_fit = false;          /* 纵向手动调整同样接管，理由见 ui_pinch_zoom */
-    if(S.ch1 || S.ch2) update_axis_label();
+    float current=s_vdiv_mv>0.f?s_vdiv_mv:s_real_sc>0.f?V32_ADC_MV_PER_LSB/(s_real_sc*V32_GRID_Y):100.f;
+    s_vdiv_mv=fmaxf(10.f,fminf(5000.f,current/ratio));s_gain=1.f;
+    s_vdiv_idx=1;for(int i=2;i<10;i++)if(fabsf(VDIVS_MV[i]-s_vdiv_mv)<fabsf(VDIVS_MV[s_vdiv_idx]-s_vdiv_mv))s_vdiv_idx=i;
+    S.auto_fit=false;scope_scale_refresh();vg_label();update_axis_label();
 }
 
 static void fetch_spectrum(float *y01, int n, float *peak_x, float *peak_y01)
@@ -1849,9 +1883,9 @@ static void fetch_spectrum(float *y01, int n, float *peak_x, float *peak_y01)
         /* sp.valid 只管"新不新"，不代表"有没有"：
            过期时按交付说明应当**保留曲线并标注陈旧**，而不是退回本地 FFT
            （本地 FFT 依赖波形帧，只有频谱帧时会算出空数据）。 */
-        if(S.use_real && s_real_fft_ch == 0 && sp.seq > 0
+        if(S.use_real && !s_fft_raw_source && s_real_fft_ch == 0 && sp.seq > 0
            && sp.got > 2 && sp.nfft > 0 && sp.fs_eff_hz > 0) {
-            int   bi = 2;
+            static float x_positions[PLOT_MAX_PTS];
             float bv = -1e30f;
             const uint32_t bins = sp.got;
             for(int i = 0; i < n; i++) {
@@ -1861,28 +1895,38 @@ static void fetch_spectrum(float *y01, int n, float *peak_x, float *peak_y01)
                 if(s1 <= s0) s1 = s0 + 1;
                 if(s1 > (int)bins) s1 = (int)bins;
 
-                int mx = 0;
-                for(int k = s0; k < s1; k++) if(sp.data[k] > mx) mx = sp.data[k];
+                int mx = 0, mxb=s0;
+                for(int k = s0; k < s1; k++) if(sp.data[k] > mx){mx = sp.data[k];mxb=k;}
+                x_positions[i]=mx?(float)(2.0*mxb/sp.nfft):(float)i/(n-1);
 
                 const float db = (float)v32_spec_dbfs_centi(mx, sp.scale_dbfs) / 100.0f;
                 float y = (db + V32_DEMO_DB_FULLSCALE) / V32_DEMO_DB_FULLSCALE;
                 if(y < 0.f) y = 0.f;
                 if(y > 1.f) y = 1.f;
                 y01[i] = y;
-                if(i >= 2 && y > bv) { bv = y; bi = i; }
+                if(y > bv)bv=y;
             }
             /* 峰值频率直接按 bin 算：k × fs_eff / nfft */
-            int pkb = 0;
+            int pkb = 1;
             for(uint32_t k = 1; k < bins; k++) if(sp.data[k] > sp.data[pkb]) pkb = (int)k;
-            s_spec_peak_hz = (float)((double)pkb * (double)sp.fs_eff_hz / (double)sp.nfft);
+            s_spec_has_peak=sp.data[pkb]!=0;
+            s_spec_peak_hz = s_spec_has_peak?(float)((double)pkb * (double)sp.fs_eff_hz / (double)sp.nfft):0.f;
             s_spec_in_use  = 1;
             s_spec_win     = (int)sp.window;
             s_spec_bins    = (int)bins;
             s_spec_nfft    = (int)sp.nfft;
             s_spec_fs_eff  = (float)sp.fs_eff_hz;
             s_spec_stale   = sp.valid ? 0 : 1;
+            s_spec_snapshot=sp;
+            unsigned histogram[256]={0},total=0;
+            for(unsigned k=2;k<sp.got;k++){histogram[sp.data[k]]++;total++;}
+            unsigned accum=0,median=0;
+            for(;median<255;median++){accum+=histogram[median];if(accum>total/2)break;}
+            s_spec_floor_unresolved=(median==0);
+            s_spec_floor_dbfs=(float)median*(float)sp.scale_dbfs/255.f-(float)sp.scale_dbfs;
 
-            if(peak_x)   *peak_x   = (float)bi / (float)(n - 1);
+            plot_set_fft_positions(s_plot_fft,x_positions,n);
+            if(peak_x)   *peak_x   = (float)(2.0*pkb/sp.nfft);
             if(peak_y01) *peak_y01 = bv;
             if(dbg_on())
                 fprintf(stderr, "[spec] FPGA 谱 bins=%u nfft=%u 峰值 bin %d = %.3f MHz\n",
@@ -1892,6 +1936,7 @@ static void fetch_spectrum(float *y01, int n, float *peak_x, float *peak_y01)
         s_spec_in_use = 0;
     }
 
+    plot_set_fft_positions(s_plot_fft,NULL,0);
     if(S.use_real && s_real_valid && s_real_bins > 2) {
         int   bi = 2;
         float bv = -1e30f;
@@ -1920,7 +1965,7 @@ static void fetch_spectrum(float *y01, int n, float *peak_x, float *peak_y01)
             y01[i] = y;
             if(i >= 2 && y > bv) { bv = y; bi = i; }
         }
-        if(peak_x)   *peak_x   = (float)bi / (float)(n - 1);
+        if(peak_x)   *peak_x   = s_real_fft_fs>0.f ? fmaxf(0.f,fminf(1.f,2.f*s_real_peak_hz/s_real_fft_fs)) : 0.f;
         if(peak_y01) *peak_y01 = bv;
         if(dbg_on()) {
             /* 列出曲线最高的三个点，确认 ▼ 落点对不对 */
@@ -1953,14 +1998,31 @@ static void fetch_spectrum(float *y01, int n, float *peak_x, float *peak_y01)
  * ========================================================= */
 static void build_scope(lv_obj_t *pg)
 {
+    lv_obj_t *header=mk_panel(pg,0,0,MAIN_W,40);
+    lv_obj_set_style_pad_all(header,6,0);
+    mk_label(header,8,1,"FPGA SCOPE",V32_FONT_BIG_B,V32_C_TEXT);
+    mk_label(header,180,4,"12 BIT · DUAL ADC",V32_FONT_SMALL,V32_C_NOTE);
+    mk_label(header,370,4,"CH1",V32_FONT_SMALL_B,V32_C_CH1);
+    mk_label(header,424,4,"CH2",V32_FONT_SMALL_B,V32_C_CH2);
+    mk_label(header,480,4,"65 MSPS",V32_FONT_SMALL,V32_C_NOTE);
+    s_scope_acq=mk_label(header,600,4,"LIVE | RAW -- /s | UI -- fps",V32_FONT_SMALL,V32_C_LIVE);
+    lv_obj_set_width(s_scope_acq,MAIN_W-625);
+    lv_obj_set_style_text_align(s_scope_acq,LV_TEXT_ALIGN_RIGHT,0);
+    lv_obj_t *body=mk(pg,0,48,MAIN_W,MAIN_H-48);
+    pg=body;
     lv_obj_set_flex_flow(pg, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(pg, V32_PAGE_GAP, LV_PART_MAIN);
 
     s_plot_scope = plot_create(pg, PLOT_SCOPE);
     /* 光标拖动：按下和移动都抓最近那条线 */
+    lv_obj_add_event_cb(s_plot_scope, cb_scope_touch, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(s_plot_scope, cb_scope_touch, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(s_plot_scope, cb_scope_touch, LV_EVENT_RELEASED, NULL);
+    s_math_note=mk_label(s_plot_scope,0,0,"",V32_FONT_SMALL,V32_C_MATH);
+    lv_obj_align(s_math_note,LV_ALIGN_TOP_RIGHT,-8,28);
+    lv_obj_set_style_bg_color(s_math_note,V32_C_PLOT,0);lv_obj_set_style_bg_opa(s_math_note,LV_OPA_COVER,0);
     lv_obj_set_flex_grow(s_plot_scope, 1);
-    lv_obj_set_height(s_plot_scope, MAIN_H);
+    lv_obj_set_height(s_plot_scope, MAIN_H-48);
 
     lv_obj_t *tr = mk_title_row(s_plot_scope, V32_PLOT_TITLE_X, V32_PLOT_TITLE_Y);
     lv_obj_t *t0 = mk_label(tr, 0, 0, "时域波形", V32_FONT_SMALL, V32_C_PLOT_TITLE);
@@ -1981,7 +2043,7 @@ static void build_scope(lv_obj_t *pg)
     lv_obj_add_flag(tr, LV_OBJ_FLAG_HIDDEN);
 
     /* ---- 右侧读数栏 ---- */
-    lv_obj_t *aside = mk(pg, 0, 0, ASIDE_W, MAIN_H);
+    lv_obj_t *aside = mk(pg, 0, 0, ASIDE_W, MAIN_H-48);
     s_aside[UI_PAGE_SCOPE] = aside;
     lv_obj_set_flex_flow(aside, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(aside, V32_RIGHT_GAP, LV_PART_MAIN);
@@ -1991,14 +2053,14 @@ static void build_scope(lv_obj_t *pg)
     lv_obj_set_flex_grow(p1, 1);
     /* 照 HTML：标题「CH1 测量」绿色小字，10 行「标签左/数值右」无框线 */
     mk_title(p1, 0, 0, "通道测量 (CH1 / CH2)");
-    s_lbl_v1         = mk_metric(p1, TITLE_H + METRIC_H * 0, "峰峰值 Vpp",  "--", V32_C_METRIC_VALUE);
-    s_lbl_m_vmax     = mk_metric(p1, TITLE_H + METRIC_H * 1, "最大值 Vmax", "--", V32_C_METRIC_VALUE);
-    s_lbl_m_vmin     = mk_metric(p1, TITLE_H + METRIC_H * 2, "最小值 Vmin", "--", V32_C_METRIC_VALUE);
-    s_lbl_m_vamp     = mk_metric(p1, TITLE_H + METRIC_H * 3, "幅度 Vamp",   "--", V32_C_METRIC_VALUE);
-    s_lbl_m_vrms     = mk_metric(p1, TITLE_H + METRIC_H * 4, "有效值 Vrms", "--", V32_C_METRIC_VALUE);
-    s_lbl_m_vavg     = mk_metric(p1, TITLE_H + METRIC_H * 5, "平均值 Vavg", "--", V32_C_METRIC_VALUE);
-    s_lbl_m_per      = mk_metric(p1, TITLE_H + METRIC_H * 6, "周期 T",      "--", V32_C_METRIC_VALUE);
-    s_lbl_scope_freq = mk_metric(p1, TITLE_H + METRIC_H * 7, "频率 f",      "--", V32_C_METRIC_VALUE);
+    s_lbl_v1         = mk_metric(p1, TITLE_H + METRIC_H * 0, "峰峰值",  "--", V32_C_METRIC_VALUE);
+    s_lbl_m_vmax     = mk_metric(p1, TITLE_H + METRIC_H * 1, "最大值", "--", V32_C_METRIC_VALUE);
+    s_lbl_m_vmin     = mk_metric(p1, TITLE_H + METRIC_H * 2, "最小值", "--", V32_C_METRIC_VALUE);
+    s_lbl_m_vamp     = mk_metric(p1, TITLE_H + METRIC_H * 3, "幅度",   "--", V32_C_METRIC_VALUE);
+    s_lbl_m_vrms     = mk_metric(p1, TITLE_H + METRIC_H * 4, "有效值", "--", V32_C_METRIC_VALUE);
+    s_lbl_m_vavg     = mk_metric(p1, TITLE_H + METRIC_H * 5, "平均值", "--", V32_C_METRIC_VALUE);
+    s_lbl_m_per      = mk_metric(p1, TITLE_H + METRIC_H * 6, "周期",      "--", V32_C_METRIC_VALUE);
+    s_lbl_scope_freq = mk_metric(p1, TITLE_H + METRIC_H * 7, "频率",      "--", V32_C_METRIC_VALUE);
     s_lbl_m_duty     = mk_metric(p1, TITLE_H + METRIC_H * 8, "占空比",      "--", V32_C_METRIC_VALUE);
     s_lbl_m_rise     = mk_metric(p1, TITLE_H + METRIC_H * 9, "上升时间",    "--", V32_C_METRIC_VALUE);
     /* 光标段：洋红（照 scope_proto：T1 T2 ΔT 1/ΔT V1 V2 ΔV 各占一行） */
@@ -2036,22 +2098,11 @@ static void build_scope(lv_obj_t *pg)
     lv_obj_set_style_pad_column(row, 7, LV_PART_MAIN);
     s_chip_ch1 = mk_chip(row, "CH1 开", cb_ch1);
     s_chip_ch2 = mk_chip(row, "CH2 开", cb_ch2);
-    /* 第二行：解调显示开关 —— 调制波在示波器页直接看，开关就在眼前，
-       不用跑去锁相页找「调制」芯片。控制条放不下（会溢出）。 */
-    lv_obj_t *row2 = mk(p2, 0, TITLE_H + V32_CHIP_H + 7, 0, V32_CHIP_H);
-    lv_obj_set_width(row2, LV_PCT(100));
-    lv_obj_set_flex_flow(row2, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(row2, 7, LV_PART_MAIN);
-    s_chip_demod = mk_chip(row2, "解调 关", cb_demod_toggle);
-    chip_selected_c(s_chip_demod, false, V32_C_WARN);
-    /*
-     * ⚠️ 必须在这里补一次"选中"着色。
-     *    mk_chip() 建出来的是 chip_styles() 的**未选中**配色，选中态只在
-     *    cb_ch1/cb_ch2/cb_ai/cb_reset 这几个回调里刷。而 S.ch1/S.ch2/S.ai
-     *    初始就是 true，于是不补这一下，开机时两个按钮会显示成未选中的
-     *    灰字暗边（参考稿里是亮青字 #70e8f5 + 亮青边 #56d8e8）。
-     *    这个 bug 很隐蔽：点一下按钮颜色就正常了，所以只看静态截图才抓得到。
-     */
+    mk_chip(row,"操作",cb_scope_help);
+    lv_obj_t *actions=mk(p2,0,TITLE_H+V32_CHIP_H+7,210,V32_CHIP_H);
+    lv_obj_set_flex_flow(actions,LV_FLEX_FLOW_ROW);lv_obj_set_style_pad_column(actions,7,0);
+    s_chip_single=mk_chip(actions,"单次",cb_single);
+    s_chip_move=mk_chip(actions,"电压轴 CH1",cb_move_channel);
     chip_selected(s_chip_ch1, S.ch1);
     chip_selected(s_chip_ch2, S.ch2);
 }
@@ -2077,7 +2128,7 @@ static void cb_fft_cursor(lv_event_t *e)
     { int32_t tx = 0, ty = 0; port_touch_last_point(&tx, &ty); p.x = tx; p.y = ty; }
 
     lv_area_t a;
-    lv_obj_get_coords(s_plot_fft, &a);
+    if(!plot_get_data_area(s_plot_fft,&a))return;
     if(p.x < a.x1) p.x = a.x1;
     if(p.x > a.x2) p.x = a.x2;
 
@@ -2089,6 +2140,96 @@ static void cb_fft_cursor(lv_event_t *e)
     if(dbg_on()) fprintf(stderr, "[cur] tap=(%d,%d) plot=(%d..%d) x=%.3f\n",
                          (int)p.x, (int)p.y, (int)a.x1, (int)a.x2, (double)s_fft_cur_x);
     ui_tick();
+}
+
+/* Harmonics are independent of ANA/DDC configuration. Never infer f0 from max peak. */
+static lv_obj_t *s_hrm_thd,*s_hrm_ref,*s_hrm_orders[5],*s_hrm_note;
+static lv_obj_t *s_hrm_dialog,*s_hrm_input,*s_hrm_dialog_ch,*s_hrm_dialog_on,*s_hrm_error;
+static int s_hrm_on,s_hrm_channel,s_hrm_edit_on,s_hrm_edit_ch;
+static uint32_t s_hrm_fcw=66076420u,s_hrm_baseline_seq;
+static void hrm_close(lv_event_t *e){(void)e;if(s_hrm_dialog)lv_obj_delete(s_hrm_dialog);s_hrm_dialog=NULL;}
+static void hrm_channel(lv_event_t *e){(void)e;s_hrm_edit_ch^=1;chip_set_text(s_hrm_dialog_ch,s_hrm_edit_ch?"CH2":"CH1");}
+static void hrm_on(lv_event_t *e){(void)e;s_hrm_edit_on^=1;chip_set_text(s_hrm_dialog_on,s_hrm_edit_on?"HARM ON":"HARM OFF");}
+static void hrm_apply(lv_event_t *e)
+{
+    (void)e;char *end;const char *input=lv_textarea_get_text(s_hrm_input);double hz=strtod(input,&end);
+    if(!*input || *end || !isfinite(hz) || hz<1 || hz>=32500000){lv_label_set_text(s_hrm_error,"1 <= Hz < 32500000");return;}
+    uint32_t fcw=v32_fcw_from_hz(hz);
+    v32_harmonic_view_t previous;v32_get_harmonic(&previous);
+    if(v32_cmd_harmonic(s_hrm_edit_on,s_hrm_edit_ch,fcw)){
+        lv_label_set_text(s_hrm_error,"UART TX ERROR");return;
+    }
+    s_hrm_on=s_hrm_edit_on;s_hrm_channel=s_hrm_edit_ch;s_hrm_fcw=fcw;
+    s_hrm_baseline_seq=previous.seq;hrm_close(NULL);
+}
+static void hrm_key(lv_event_t *e)
+{
+    lv_obj_t *pad=lv_event_get_target(e);uint32_t key=lv_buttonmatrix_get_selected_button(pad);
+    if(key==LV_BUTTONMATRIX_BUTTON_NONE)return;
+    const char *text=lv_buttonmatrix_get_button_text(pad,key);
+    if(!strcmp(text,"DEL"))lv_textarea_delete_char(s_hrm_input);
+    else if(!strcmp(text,"CLR"))lv_textarea_set_text(s_hrm_input,"");
+    else if(!strcmp(text,"OK"))hrm_apply(NULL);
+    else if(!strcmp(text,"<"))lv_textarea_cursor_left(s_hrm_input);
+    else if(!strcmp(text,">"))lv_textarea_cursor_right(s_hrm_input);
+    else lv_textarea_add_text(s_hrm_input,text);
+}
+static void hrm_settings(lv_event_t *e)
+{
+    (void)e;if(s_hrm_dialog)return;
+    s_hrm_edit_on=s_hrm_on;s_hrm_edit_ch=s_hrm_channel;
+    s_hrm_dialog=mk(lv_layer_top(),0,0,1024,600);
+    lv_obj_set_style_bg_color(s_hrm_dialog,V32_C_PANEL,0);lv_obj_set_style_bg_opa(s_hrm_dialog,LV_OPA_COVER,0);
+    mk_label(s_hrm_dialog,24,16,"谐波 · H1–H5 / THD 2–5",V32_FONT_BIG_B,V32_C_TEXT);
+    mk_label(s_hrm_dialog,24,53,"基频参考 Hz · 指定周期信号，最大谱峰不自动等于基波",V32_FONT_INFO,V32_C_LABEL);
+    s_hrm_input=lv_textarea_create(s_hrm_dialog);lv_obj_set_pos(s_hrm_input,24,90);lv_obj_set_size(s_hrm_input,470,56);
+    lv_textarea_set_one_line(s_hrm_input,true);lv_textarea_set_accepted_chars(s_hrm_input,"0123456789.");lv_textarea_set_max_length(s_hrm_input,16);
+    lv_obj_set_style_text_font(s_hrm_input,V32_FONT_BIG_B,0);
+    lv_obj_set_style_bg_color(s_hrm_input,V32_C_CHIP_BG,0);lv_obj_set_style_bg_opa(s_hrm_input,LV_OPA_COVER,0);
+    lv_obj_set_style_text_color(s_hrm_input,V32_C_TEXT,0);
+    char hz[32];snprintf(hz,sizeof hz,"%.3f",(double)s_hrm_fcw*65000000.0/4294967296.0);lv_textarea_set_text(s_hrm_input,hz);
+    s_hrm_dialog_ch=mk_chip(s_hrm_dialog,s_hrm_edit_ch?"CH2":"CH1",hrm_channel);lv_obj_set_pos(s_hrm_dialog_ch,520,98);lv_obj_set_size(s_hrm_dialog_ch,100,44);
+    s_hrm_dialog_on=mk_chip(s_hrm_dialog,s_hrm_edit_on?"HARM ON":"HARM OFF",hrm_on);lv_obj_set_pos(s_hrm_dialog_on,640,98);lv_obj_set_size(s_hrm_dialog_on,150,44);
+    mk_label(s_hrm_dialog,24,165,"需 FPGA bit 16556a03；烧录并核对身份后再开启。\n未校准；有限阶 THD，不是 THD+N / SINAD。",V32_FONT_INFO,V32_C_WARN);
+    s_hrm_error=mk_label(s_hrm_dialog,24,225,"关闭不会改变调制制式、分析通道或速率。",V32_FONT_INFO,V32_C_LABEL);
+    lv_obj_t *apply=mk_chip(s_hrm_dialog,"应用",hrm_apply);lv_obj_set_pos(apply,810,98);lv_obj_set_size(apply,90,44);
+    lv_obj_t *close=mk_chip(s_hrm_dialog,"X",hrm_close);lv_obj_set_pos(close,930,16);lv_obj_set_size(close,64,44);
+    static const char *keys[]={"1","2","3","DEL","\n","4","5","6","CLR","\n","7","8","9","OK","\n","0",".","<",">",""};
+    lv_obj_t *keyboard=lv_buttonmatrix_create(s_hrm_dialog);lv_obj_set_pos(keyboard,12,290);lv_obj_set_size(keyboard,1000,298);
+    lv_buttonmatrix_set_map(keyboard,keys);lv_obj_add_event_cb(keyboard,hrm_key,LV_EVENT_VALUE_CHANGED,NULL);
+    lv_obj_set_style_bg_color(keyboard,V32_C_PANEL,LV_PART_MAIN);lv_obj_set_style_bg_opa(keyboard,LV_OPA_COVER,LV_PART_MAIN);
+    lv_obj_set_style_pad_all(keyboard,10,LV_PART_MAIN);lv_obj_set_style_pad_row(keyboard,8,LV_PART_MAIN);lv_obj_set_style_pad_column(keyboard,8,LV_PART_MAIN);
+    lv_obj_set_style_bg_color(keyboard,V32_C_CHIP_BG,LV_PART_ITEMS);lv_obj_set_style_bg_opa(keyboard,LV_OPA_COVER,LV_PART_ITEMS);
+    lv_obj_set_style_text_color(keyboard,V32_C_TEXT,LV_PART_ITEMS);lv_obj_set_style_text_font(keyboard,V32_FONT_BIG_B,LV_PART_ITEMS);
+    lv_obj_set_style_border_color(keyboard,V32_C_PANEL_BORDER,LV_PART_ITEMS);lv_obj_set_style_border_width(keyboard,1,LV_PART_ITEMS);
+    lv_obj_set_style_radius(keyboard,6,LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(keyboard,V32_C_CHIP_ON_BG,LV_PART_ITEMS|LV_STATE_PRESSED);
+}
+static void tick_harmonic(void)
+{
+    static harmonic_confidence confidence;
+    v32_harmonic_view_t v;int have=v32_get_harmonic(&v);
+    int match=have && v.valid && v.seq!=s_hrm_baseline_seq && v.m.channel==(unsigned)s_hrm_channel && v.m.reference_fcw==s_hrm_fcw;
+    int ready=s_hrm_on && match;char reference[32];fmt_hz(reference,sizeof reference,(float)((double)s_hrm_fcw*65000000.0/4294967296.0));
+    unsigned confirmed=harmonic_confirm(&confidence,&v.m,ready);
+    unsigned detected=ready?(v.m.valid_mask & ~v.m.noise_mask & 30u):0;
+    int qualified=detected && (confirmed & (detected|1u))==(detected|1u);
+    lv_label_set_text(s_hrm_ref,reference);lv_label_set_text(s_hrm_thd,"—");
+    for(unsigned i=0;i<5;i++){
+        double dbc;
+        if(ready && v32_harmonic_dbc(&v.m,i+1,&dbc)){
+            if(confirmed&(1u<<i))lv_label_set_text_fmt(s_hrm_orders[i],"%.1f dBc",dbc);
+            else lv_label_set_text(s_hrm_orders[i],"CHECK");
+        }
+        else lv_label_set_text(s_hrm_orders[i],ready && (v.m.noise_mask&(1u<<i))?"< NOISE":"—");
+    }
+    if(!s_hrm_on){lv_label_set_text(s_hrm_note,"HARM OFF · 未校准\n需新 bit 16556a03");return;}
+    if(!ready){lv_label_set_text(s_hrm_note,have && !v.valid?"HRM 超时 · 读数已撤回":"等待 HRM 回显匹配\n检查 bit / 通道 / 基频");return;}
+    if(v.m.thd_valid && !qualified)lv_label_set_text(s_hrm_thd,"CHECK");
+    else if(v.m.thd_valid)lv_label_set_text_fmt(s_hrm_thd,"%.3f %%",100.0*v.m.thd_q24/16777216.0);
+    else if(v.m.thd_below_noise)lv_label_set_text(s_hrm_thd,"< NOISE");
+    const char *reason=v.m.flags&8?"CLIP":v.m.flags&1?"NO H1":v.m.flags&2?"LOW RES":v.m.flags&4?"PARTIAL":v.m.flags&32?"OVERFLOW":v.m.flags&128?"WINDOW":v.m.thd_below_noise?"< NOISE":"HANN";
+    lv_label_set_text_fmt(s_hrm_note,"CH%u · R%u · %s\nfs %.1fkHz · %ums\n%s · 未校准",v.m.channel+1,v.m.decimation,reason,(double)v.m.adc_fs/v.m.decimation/1000.0,v.age_ms,v.m.flags&256?"前端响应未校准":"THD 2–5");
 }
 
 static void build_fft(lv_obj_t *pg)
@@ -2123,7 +2264,7 @@ static void build_fft(lv_obj_t *pg)
     /* 频谱页游标：手指点哪儿就读哪儿的频率和幅度。
      * 只显示一个尖峰确实浪费 —— 一屏 32.5 MHz 范围内的任意位置都该能读。 */
     s_lbl_fft_cur = mk_label(s_plot_fft, 0, 0, "点击频谱读取", V32_FONT_SMALL, V32_C_WARN);
-    lv_obj_align(s_lbl_fft_cur, LV_ALIGN_TOP_RIGHT, -V32_PLOT_TITLE_X, V32_PLOT_TITLE_Y);
+    lv_obj_align(s_lbl_fft_cur, LV_ALIGN_TOP_LEFT, V32_PLOT_TITLE_X, 30);
     lv_obj_set_style_bg_color(s_lbl_fft_cur, V32_C_PLOT, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_lbl_fft_cur, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(s_lbl_fft_cur, 4, LV_PART_MAIN);
@@ -2136,9 +2277,10 @@ static void build_fft(lv_obj_t *pg)
     /* ⚠️ lv_obj_add_event_cb 的 filter 是**单个事件码精确匹配**，
      *    写成 (A|B|C) 是一个谁都不等于的值，回调永远不触发（踩过）。
      *    要听多个事件就注册多次。 */
-    lv_obj_add_event_cb(s_plot_fft, cb_fft_cursor, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_plot_fft, cb_fft_cursor, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(s_plot_fft, cb_fft_cursor, LV_EVENT_PRESSING, NULL);
     /* 图上的标题/读数标签会挡住图本身，事件不冒泡，所以页容器也挂一份 */
-    lv_obj_add_event_cb(pg, cb_fft_cursor, LV_EVENT_CLICKED, NULL);
+
 
     /*
      * 左下角原来还有一行 LVGL 标签 "0 — 32.5 MHz · dBFS"。
@@ -2155,11 +2297,19 @@ static void build_fft(lv_obj_t *pg)
     lv_obj_set_width(p1, LV_PCT(100));
     lv_obj_set_flex_grow(p1, 1);
     mk_title(p1, 0, 0, "频谱分析");
-    s_lbl_fft_peakf = mk_metric(p1, TITLE_H + METRIC_H * 0, "峰值频率",   "10.000 MHz", V32_C_GREEN);
+    s_lbl_fft_peakf = mk_metric(p1, TITLE_H + METRIC_H * 0, "中心频率",   "10.000 MHz", V32_C_GREEN);
     s_lbl_fft_peakl = mk_metric(p1, TITLE_H + METRIC_H * 1, "峰值电平",   "-12.8 dBFS", V32_C_METRIC_VALUE);
     s_lbl_fft_floor = mk_metric(p1, TITLE_H + METRIC_H * 2, "底噪",      "-79.4 dBFS", V32_C_METRIC_VALUE);
-    mk_metric(p1, TITLE_H + METRIC_H * 3, "频率分辨率", "7.935 kHz", V32_C_METRIC_VALUE);
+    s_lbl_fft_res=mk_metric(p1, TITLE_H + METRIC_H * 3, "FFT Δf", "—", V32_C_METRIC_VALUE);
     s_lbl_fft_win   = mk_metric(p1, TITLE_H + METRIC_H * 4, "窗函数",    "HANN",      V32_C_METRIC_VALUE);
+    mk_label(p1,0,145,"谐波 · THD 2–5",V32_FONT_BASE_B,V32_C_TEXT);
+    s_hrm_ref=mk_metric(p1,172,"基频参考","—",V32_C_LABEL);
+    s_hrm_thd=mk_metric(p1,194,"THD 2–5","—",V32_C_GREEN);
+    static const char *orders[]={"H1","H2","H3","H4","H5"};
+    for(int i=0;i<5;i++)s_hrm_orders[i]=mk_metric(p1,216+22*i,orders[i],"—",V32_C_TEXT);
+    s_hrm_note=mk_label(p1,0,332,"HARM OFF · 未校准",V32_FONT_SMALL,V32_C_WARN);lv_obj_set_width(s_hrm_note,210);
+    lv_obj_t *settings=mk_chip(p1,"谐波设置",hrm_settings);lv_obj_set_pos(settings,0,400);lv_obj_set_size(settings,210,34);
+
 }
 
 /* =========================================================
@@ -2194,7 +2344,8 @@ static void build_lock(lv_obj_t *pg)
     lv_obj_set_height(R, MAIN_H);
     lv_obj_set_flex_flow(R, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(R, V32_SECTION_GAP, LV_PART_MAIN);
-    lv_obj_t *rt = mk_title(R, 0, 0, "锁相输出 · 时间历程");
+    lv_obj_t *rt = mk_title(R, 0, 0, "双通道波形 · CH1 / CH2");
+    s_lock_history_title=rt;
     lv_obj_set_width(rt, LV_PCT(100));
     s_plot_lock = plot_create(R, PLOT_HIST);
     lv_obj_set_width(s_plot_lock, LV_PCT(100));
@@ -2212,8 +2363,7 @@ static void build_lock(lv_obj_t *pg)
     s_lbl_lock_ref   = mk_metric(p1, TITLE_H + METRIC_H * 0, "参考频率",  "10.000 MHz", V32_C_METRIC_VALUE);
     s_lbl_lock_amp   = mk_metric(p1, TITLE_H + METRIC_H * 1, "幅度",      "8.6 mV",     V32_C_CH1);
     s_lbl_lock_phase = mk_metric(p1, TITLE_H + METRIC_H * 2, "相位",      "43.7°",      V32_C_CH2);
-    s_lbl_lock_tau   = mk_metric(p1, TITLE_H + METRIC_H * 3, "时间常数",  "10 ms",      V32_C_METRIC_VALUE);
-    s_lbl_lock_state = mk_metric(p1, TITLE_H + METRIC_H * 4, "锁定状态", "跟踪中", V32_C_GREEN);
+    s_lbl_lock_state = mk_metric(p1, TITLE_H + METRIC_H * 3, "锁定状态", "跟踪中", V32_C_GREEN);
     mk_note(p1, TITLE_H + METRIC_H * 5 + 6, ASIDE_W - V32_PANEL_PAD * 2,
             "数值来自 FPGA 片上锁相；不可用时显示「—」，沿用旧值会误导。");
     /*
@@ -2294,6 +2444,77 @@ static void build_ai(lv_obj_t *pg)
  * 页面 5：SYSTEM（这一页显示真实数据）
  * ========================================================= */
 /* ==================== 页面：调制分析（V32ANA1!） ==================== */
+static void build_image(lv_obj_t *pg)
+{
+    lv_obj_t *panel=mk_panel(pg,0,0,MAIN_W,MAIN_H);
+    mk_label(panel,6,0,"图片接收 · IMAGE RX",V32_FONT_BIG_B,V32_C_PANEL_TITLE);
+    s_image_canvas=lv_canvas_create(panel);
+    lv_canvas_set_buffer(s_image_canvas,s_image_pixels,IMAGE_CANVAS_WIDTH,IMAGE_CANVAS_HEIGHT,LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_pos(s_image_canvas,6,40);
+    s_image_status=mk_label(panel,734,38,"等待数据",V32_FONT_BIG_B,V32_C_WARN);
+    s_image_link=mk_label(panel,734,90,"OOK / 2FSK / BPSK · Manchester",V32_FONT_BASE,V32_C_NOTE);
+    s_image_info=mk_label(panel,734,145,"0 / 0 packets\nCRC OK: 0\n32 x 32 mono first",V32_FONT_BIG,V32_C_METRIC_VALUE);
+    lv_obj_set_width(s_image_status,MAIN_W-764);
+    lv_obj_set_width(s_image_link,MAIN_W-764);
+    lv_obj_set_width(s_image_info,MAIN_W-764);
+    lv_obj_set_style_text_font(s_image_info,V32_FONT_BASE,0);
+    lv_label_set_long_mode(s_image_info,LV_LABEL_LONG_WRAP);
+    lv_obj_t *row=mk(panel,734,MAIN_H-100,MAIN_W-764,90);
+    lv_obj_set_flex_flow(row,LV_FLEX_FLOW_ROW_WRAP);lv_obj_set_style_pad_column(row,8,0);lv_obj_set_style_pad_row(row,6,0);
+    const char *names[]={"OOK","2FSK","BPSK"};const int modes[]={5,3,6};
+    for(int i=0;i<3;i++){
+        lv_obj_t *b=mk_chip(row,names[i],NULL);
+        lv_obj_set_style_text_font(lv_obj_get_child(b,0),V32_FONT_BASE_B,0);lv_obj_set_size(b,80,40);
+        lv_obj_add_event_cb(b,cb_image_mode,LV_EVENT_CLICKED,(void*)(intptr_t)modes[i]);
+    }
+    lv_obj_t *clear=mk_chip(row,"复位",cb_image_clear);
+    lv_obj_set_style_text_font(lv_obj_get_child(clear,0),V32_FONT_BASE_B,0);lv_obj_set_size(clear,80,40);
+}
+
+static void image_refresh(void)
+{
+    const bool redraw=s_image.revision!=s_image_drawn_revision;
+    if(redraw){
+        for(unsigned i=0;i<IMAGE_CANVAS_WIDTH*IMAGE_CANVAS_HEIGHT;i++)s_image_pixels[i]=0x1082;
+        if(s_image.have_image){
+            double scale=fmin((double)IMAGE_CANVAS_WIDTH/s_image.width,(double)IMAGE_CANVAS_HEIGHT/s_image.height);
+            unsigned dw=(unsigned)(s_image.width*scale),dh=(unsigned)(s_image.height*scale);
+            unsigned ox=(IMAGE_CANVAS_WIDTH-dw)/2,oy=(IMAGE_CANVAS_HEIGHT-dh)/2;
+            for(unsigned y=0;y<dh;y++)for(unsigned x=0;x<dw;x++){
+                unsigned sx=(unsigned)((uint64_t)x*s_image.width/dw),sy=(unsigned)((uint64_t)y*s_image.height/dh);
+                int bit=image_receiver_pixel(&s_image,sx,sy);
+                s_image_pixels[(oy+y)*IMAGE_CANVAS_WIDTH+ox+x]=bit<0?0x528a:bit?0x0000:0xffff;
+            }
+        }
+        lv_obj_invalidate(s_image_canvas);s_image_drawn_revision=s_image.revision;
+    }
+    uint32_t now=lv_tick_get();
+    static uint32_t info_ms;static uint64_t previous_packets;
+    if(!redraw && now-info_ms<200u && previous_packets==s_image.packets)return;
+    info_ms=now;previous_packets=s_image.packets;
+    if(s_image.packets!=s_image_packets_seen){
+        s_image_packets_seen=s_image.packets;s_image_packet_ms=now;
+        if(getenv("IMAGE_TRACE"))fprintf(stderr,"[image-rx] t_ms=%u id=%08x crc32=%08x size=%ux%u bytes=%u received=%u chunks=%u complete=%u packets=%llu crc_errors=%llu gaps=%llu\n",
+            now,s_image.image_id,s_image.image_crc,s_image.width,s_image.height,(unsigned)s_image.total_bytes,
+            s_image.received,s_image.chunks,s_image.complete,(unsigned long long)s_image.packets,
+            (unsigned long long)s_image.crc_errors,(unsigned long long)s_image.gaps);
+    }
+    lv_label_set_text(s_image_status,s_image.complete?"CRC OK · 图已接收":s_image.have_image?"接收中":"等待数据");
+    lv_obj_set_style_text_color(s_image_status,s_image.complete?V32_C_GREEN:V32_C_WARN,0);
+    char link[128],info[384];
+    snprintf(link,sizeof link,"%s · %s · CH%d · %d Bd",s_image_enabled?"RX ON":"RX OFF",
+             s_an_type==5?"OOK":s_an_type==3?"2FSK":s_an_type==6?"BPSK":"SELECT MODE",s_an_ch+1,OOK_RATES[s_ook_rate]);
+    lv_label_set_text(s_image_link,link);
+    snprintf(info,sizeof info,"%u / %u packets · %u%%\n%u x %u · %u bytes\nCRC err %llu / bad %llu\nRepeat %llu / gap %llu\nLast %s%u ms\nManchester\n%s",
+             s_image.received,s_image.chunks,s_image.chunks?100*s_image.received/s_image.chunks:0,
+             s_image.width,s_image.height,(unsigned)s_image.total_bytes,
+             (unsigned long long)s_image.crc_errors,(unsigned long long)s_image.invalid_packets,
+             (unsigned long long)s_image.duplicates,(unsigned long long)s_image.gaps,
+             s_image.packets?"":"-- / ",s_image.packets?now-s_image_packet_ms:0,
+             s_image.packets && now-s_image_packet_ms>3000?"NO NEW PACKETS":"CRC checks image data");
+    lv_label_set_text(s_image_info,info);
+}
+
 static void build_mod(lv_obj_t *pg)
 {
     lv_obj_set_flex_flow(pg, LV_FLEX_FLOW_ROW);
@@ -2330,7 +2551,7 @@ static void build_mod(lv_obj_t *pg)
     }
     /* 制式=关 时的开始指引（否则下图一块空网格，不知道要干什么） */
     s_lbl_modhint = mk_label(s_plot_modana, 0, 0,
-                             "制式为「关」 · 点控制条「制式」选 AM/FM/PM/QPSK… 开始分析",
+                             "制式为「关」 · 选择 AM/FM/PM/OOK/2FSK/BPSK/QPSK",
                              V32_FONT_SMALL, V32_C_WARN);
     lv_obj_align(s_lbl_modhint, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_width(s_lbl_modhint,LV_PCT(95));
@@ -2353,13 +2574,26 @@ static void build_mod(lv_obj_t *pg)
     s_lbl_m4  = mk_metric(p1, TITLE_H + METRIC_H * 4, "幅度/频偏", "--", V32_C_METRIC_VALUE);
     s_lbl_modvalue_key=lv_obj_get_child(lv_obj_get_parent(s_lbl_m4),0);
     s_lbl_m5  = mk_metric(p1, TITLE_H + METRIC_H * 5, "调制度",   "--", V32_C_METRIC_VALUE);
+    s_lbl_moddecision_key=lv_obj_get_child(lv_obj_get_parent(s_lbl_m5),0);
     s_lbl_m6  = mk_metric(p1, TITLE_H + METRIC_H * 6, "有效样点", "--", V32_C_METRIC_VALUE);
-    mk_metric(p1, TITLE_H + METRIC_H * 7, "符号率",   "—", V32_C_METRIC_VALUE);
+    s_lbl_modbaud=mk_metric(p1, TITLE_H + METRIC_H * 7, "符号率",   "—", V32_C_METRIC_VALUE);
+    s_lbl_ook_info=mk_label(p1,0,TITLE_H+METRIC_H*8,"",V32_FONT_SMALL,V32_C_METRIC_VALUE);
+    s_lbl_ook_bits=mk_label(p1,0,TITLE_H+METRIC_H*11,"",V32_FONT_SMALL,V32_C_METRIC_VALUE);
+    lv_obj_set_width(s_lbl_ook_info,LV_PCT(100));lv_obj_set_width(s_lbl_ook_bits,LV_PCT(100));
 
     lv_obj_t *p2 = mk_panel(aside, 0, 0, 0,
                             TITLE_H + METRIC_H * 4 + V32_PANEL_PAD * 2 + V32_PANEL_BW * 2);
     lv_obj_set_width(p2, LV_PCT(100));
     mk_title(p2, 0, 0, "分析帧");
+    s_chip_bpsk_inv=mk_chip(p2,"INV 0",cb_bpsk_inv);
+    s_chip_bpsk_view=mk_chip(p2,"SYM",cb_bpsk_view);
+    lv_obj_t *bpsk_buttons[]={s_chip_bpsk_inv,s_chip_bpsk_view};
+    for(int k=0;k<2;k++){
+        lv_obj_set_pos(bpsk_buttons[k],k?150:90,0);lv_obj_set_size(bpsk_buttons[k],k?74:54,22);
+        lv_obj_set_style_pad_all(bpsk_buttons[k],0,0);
+        lv_obj_set_style_text_font(lv_obj_get_child(bpsk_buttons[k],0),V32_FONT_SMALL,0);
+        lv_obj_add_flag(bpsk_buttons[k],LV_OBJ_FLAG_HIDDEN);
+    }
     s_lbl_mf1 = mk_metric(p2, TITLE_H + METRIC_H * 0, "帧号/配置", "--", V32_C_METRIC_VALUE);
     s_lbl_mf2 = mk_metric(p2, TITLE_H + METRIC_H * 1, "样点类型",   "--", V32_C_METRIC_VALUE);
     s_lbl_mf3 = mk_metric(p2, TITLE_H + METRIC_H * 2, "抽取率",     "--", V32_C_METRIC_VALUE);
@@ -2396,6 +2630,7 @@ static void build_system(lv_obj_t *pg)
           S.use_real ? V32_C_GREEN : V32_C_WARN);
     mk_kv(L, TITLE_H + KV_H * 5, lw, "数据源",
           S.use_real ? v32_source_name() : "DemoSource", V32_C_METRIC_VALUE);
+    mk_label(L,0,TITLE_H+KV_H*6+12,"FPGA: FFT · I/Q · PHASE\nOOK / 2FSK / BPSK\nCRC IMAGE RX",V32_FONT_BASE,V32_C_TEXT);
 
     lv_obj_t *R = mk_panel(two, 0, 0, 0, MAIN_H);
     lv_obj_set_flex_grow(R, 1);
@@ -2411,8 +2646,8 @@ static void build_system(lv_obj_t *pg)
                            S.use_real ? "—" : "—（演示）", V32_C_METRIC_VALUE);
     s_lbl_v32_loss = mk_kv(R, TITLE_H + KV_H * 2, lw, "丢包统计",
                            S.use_real ? "—" : "—（演示）", V32_C_METRIC_VALUE);
-    mk_kv(R, TITLE_H + KV_H * 3, lw, "FPGA 固件",
-          S.use_real ? "V32CAP3 v3 / 4096" : "未连接", V32_C_METRIC_VALUE);
+    s_system_frame_info=mk_kv(R, TITLE_H + KV_H * 3, lw, "采样点数",
+          S.use_real ? "—" : "未连接", V32_C_METRIC_VALUE);
     s_lbl_uptime = mk_kv(R, TITLE_H + KV_H * 4, lw, "运行时长", "00:00",      V32_C_METRIC_VALUE);
     /*
      * 参考稿原文是「此网页是 UI 原型，不会自动连接实际 FPGA…」。
@@ -2524,7 +2759,7 @@ static void build_topbar(lv_obj_t *root)
      * LVGL 9 把 v8 的 lv_label_set_recolor 删了，所以拆两个 label 横排。 */
     lv_obj_t *line1 = mk(brand, 0, 0, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(line1, LV_FLEX_FLOW_ROW);
-    lv_obj_t *b1 = mk_label(line1, 0, 0, "V32 ", V32_FONT_BIG_B, V32_C_BRAND);
+    lv_obj_t *b1 = mk_label(line1, 0, 0, "FPGA ", V32_FONT_BIG_B, V32_C_BRAND);
     lv_obj_set_style_text_letter_space(b1, 1, LV_PART_MAIN);
     lv_obj_t *b2 = mk_label(line1, 0, 0, "信号分析仪", V32_FONT_BIG_B, V32_C_BRAND_TEXT);
     lv_obj_set_style_text_letter_space(b2, 1, LV_PART_MAIN);
@@ -2594,6 +2829,39 @@ static void set_run_status(bool running)
  * ========================================================= */
 
 /* ---- 事件回调 ---- */
+static lv_obj_t *s_help_overlay;
+static void cb_help_close(lv_event_t *e)
+{
+    LV_UNUSED(e);if(s_help_overlay){lv_obj_delete(s_help_overlay);s_help_overlay=NULL;}
+}
+static void cb_scope_help(lv_event_t *e)
+{
+    LV_UNUSED(e);if(s_help_overlay)return;
+    s_help_overlay=lv_obj_create(lv_layer_top());
+    lv_obj_set_pos(s_help_overlay,0,0);lv_obj_set_size(s_help_overlay,1024,600);
+    lv_obj_set_style_bg_color(s_help_overlay,lv_color_black(),0);
+    lv_obj_set_style_bg_opa(s_help_overlay,LV_OPA_70,0);lv_obj_set_style_border_width(s_help_overlay,0,0);
+    lv_obj_remove_flag(s_help_overlay,LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *panel=mk_panel(s_help_overlay,28,42,930,470);
+    mk_label(panel,12,8,"示波器操作",V32_FONT_BIG_B,V32_C_TEXT);
+    lv_obj_t *close=mk_chip(panel,"X",cb_help_close);lv_obj_set_pos(close,850,0);lv_obj_set_size(close,40,40);
+    lv_obj_t *body=mk_label(panel,12,54,
+        "时基 ◀ / ▶：调整时间窗口；档位 ◀ / ▶：调整两路公共量程。\n"
+        "自动：回到自动量程和窗口；复位：恢复默认显示。\n"
+        "暂停：冻结当前波形；再次运行继续显示，串口采集不停止。\n"
+        "触发 / 边沿 / 电平：软件帧内对齐；不是硬件单次触发。\n"
+        "单次：等待下一接收帧内边沿后冻结；帧间瞬态可能漏采。\n"
+        "光标：开启后拖动 T1 / T2 / V1 / V2，读取 ΔT、ΔV 和 1/ΔT。\n"
+        "两指操作：左右缩放时间窗口，上下调整显示增益。\n"
+        "电压轴 CH1 或 CH2：选择电压轴与电压光标参考通道。\n"
+        "载波密集时呈带状；包络与解调波形请在调制页观察。\n"
+        "绿色 M 是运算结果，使用独立量程；除零处断开。\n"
+        "全屏：展开波形区；长时基跨帧显示存在采集死区。\n"
+        "RAW 是实际到帧率，UI 是显示刷新率；两者不同。",
+        V32_FONT_BIG,V32_C_TEXT);
+    lv_obj_set_width(body,880);lv_obj_set_style_text_line_space(body,8,0);
+    lv_label_set_long_mode(body,LV_LABEL_LONG_WRAP);
+}
 static void cb_nav(lv_event_t *e)
 {
     ui_set_page((int)(intptr_t)lv_event_get_user_data(e));
@@ -2656,6 +2924,7 @@ static void cb_timebase(lv_event_t *e)
 static void fft_ch_set(int v)
 {
     S.fft_ch = v;
+    if(s_full_n>=64)real_compute_fft(s_full_n,s_real_fft_fs);
     for(int i = 0; i < 3; i++)
         if(s_chip_fch[i]) chip_selected(s_chip_fch[i], i == v);
     ui_tick();
@@ -2670,33 +2939,35 @@ static void cb_fch_ch2 (lv_event_t *e) { LV_UNUSED(e); fft_ch_set(2); }
  */
 static void cb_scope_touch(lv_event_t *e)
 {
-    if(!s_cur_on || s_plot_scope == NULL) return;
-    lv_indev_t *ind = lv_event_get_indev(e);
-    if(ind == NULL) return;
-
-    lv_point_t pt;
-    lv_indev_get_point(ind, &pt);
-
-    lv_area_t a;
-    lv_obj_get_coords(s_plot_scope, &a);
-    const int w = a.x2 - a.x1, h = a.y2 - a.y1;
-    if(w < 10 || h < 10) return;
-
-    float rx = (float)(pt.x - a.x1) / (float)w;
-    float ry = (float)(pt.y - a.y1) / (float)h;
-    if(rx < 0.f) rx = 0.f;
-    if(rx > 1.f) rx = 1.f;
-    if(ry < 0.f) ry = 0.f;
-    if(ry > 1.f) ry = 1.f;
-
-    int best = -1; float bd = 0.08f;
-    for(int i = 0; i < 2; i++) { float d = fabsf(rx - s_cur_x[i]); if(d < bd) { bd = d; best = i; } }
-    for(int i = 0; i < 2; i++) { float d = fabsf(ry - s_cur_y[i]); if(d < bd) { bd = d; best = 2 + i; } }
-    if(best < 0) return;
-
-    if(best < 2) s_cur_x[best] = rx;
-    else         s_cur_y[best - 2] = ry;
+    static int grabbed=-1,down;
+    lv_event_code_t code=lv_event_get_code(e);
+    if(code==LV_EVENT_RELEASED){down=0;grabbed=-1;return;}
+    lv_area_t a;if(!plot_get_data_area(s_plot_scope,&a))return;
+    int32_t x,y;port_touch_last_point(&x,&y);
+    float rx=fmaxf(0.f,fminf(1.f,(float)(x-a.x1)/(a.x2-a.x1)));
+    float ry=fmaxf(0.f,fminf(1.f,(float)(y-a.y1)/(a.y2-a.y1)));
+    if(code==LV_EVENT_PRESSED){
+        down=1;grabbed=-1;
+        if(s_cur_on){float distance=.08f;
+            for(int i=0;i<2;i++){float d=fabsf(rx-s_cur_x[i]);if(d<distance){distance=d;grabbed=i;}}
+            for(int i=0;i<2;i++){float d=fabsf(ry-s_cur_y[i]);if(d<distance){distance=d;grabbed=i+2;}}
+        }
+    }
+    if(!down)return;
+    if(s_cur_on){
+        if(grabbed<0)return;
+        if(grabbed<2)s_cur_x[grabbed]=rx;else s_cur_y[grabbed-2]=ry;
+    }
     ui_tick();
+}
+static void cb_move_channel(lv_event_t *e){LV_UNUSED(e);s_move_channel^=1;chip_set_text(s_chip_move,s_move_channel?"电压轴 CH2":"电压轴 CH1");ui_tick();}
+static void cb_single(lv_event_t *e)
+{
+    LV_UNUSED(e);s_single_armed=1;s_single_done=0;s_trig_wait=1;s_trig_mode=2;
+    s_single_baseline=v32_get_stats()->last_frame_id;S.running=true;
+    if(!isfinite(s_trig_counts))s_trig_counts=(s_m1.vmin+s_m1.vmax)*.5f;
+    chip_set_text(s_chip_single,"等待触发");chip_set_text(s_chip_run,"⏸ 暂停");
+    if(s_chip_trig)chip_set_text(s_chip_trig,"触发 正常");
 }
 
 /* 时基档位表（跟 HTML 原型一致） */
@@ -2726,7 +2997,7 @@ static void tb_apply(int idx)
     const int   fn = (src && src->frame_len > 0) ? src->frame_len : V32_POINTS;
     if(idx < 0) idx = 0;
     if(idx > TB_N - 1) idx = TB_N - 1;
-    /* 解调模式不再限制档位：深档由解调滚动缓冲（s_riq）拼接支撑。 */
+    /* Long timebases use RAW history; modulation analysis has its own page. */
     s_tb_idx = idx;
 
     int span = (int)(TB_US[idx] * 1e-6f * (float)V32_GRID_X * fs + 0.5f);
@@ -2759,14 +3030,14 @@ static void vg_label(void)
         chip_selected(s_chip_vg, true);      /* 照 scope_proto：auto 档高亮 */
         return;
     }
-    if(VDIVS_MV[s_vdiv_idx] >= 1000.f) snprintf(b, sizeof b, "档位 %.1fV", (double)(VDIVS_MV[s_vdiv_idx] / 1000.f));
-    else                               snprintf(b, sizeof b, "档位 %.0fmV", (double)VDIVS_MV[s_vdiv_idx]);
+    if(s_vdiv_mv >= 1000.f) snprintf(b, sizeof b, "档位 %.2fV", (double)(s_vdiv_mv / 1000.f));
+    else                               snprintf(b, sizeof b, "档位 %.0fmV", (double)s_vdiv_mv);
     chip_set_text(s_chip_vg, b);
     chip_selected(s_chip_vg, false);
 }
-static void cb_vg_dec(lv_event_t *e) { LV_UNUSED(e); if(s_vdiv_idx > 0) s_vdiv_idx--; s_vdiv_mv = VDIVS_MV[s_vdiv_idx]; vg_label(); }
-static void cb_vg_inc(lv_event_t *e) { LV_UNUSED(e); if(s_vdiv_idx < 9) s_vdiv_idx++; s_vdiv_mv = VDIVS_MV[s_vdiv_idx]; vg_label(); }
-static void cb_vg_auto(lv_event_t *e){ LV_UNUSED(e); s_vdiv_idx = 0; s_vdiv_mv = 0.f; vg_label(); }
+static void cb_vg_dec(lv_event_t *e) { LV_UNUSED(e); if(s_vdiv_idx > 0) s_vdiv_idx--; s_vdiv_mv = VDIVS_MV[s_vdiv_idx];s_gain=1.f; vg_label();ui_tick(); }
+static void cb_vg_inc(lv_event_t *e) { LV_UNUSED(e); if(s_vdiv_idx < 9) s_vdiv_idx++; s_vdiv_mv = VDIVS_MV[s_vdiv_idx];s_gain=1.f; vg_label();ui_tick(); }
+static void cb_vg_auto(lv_event_t *e){ LV_UNUSED(e); s_vdiv_idx = 0; s_vdiv_mv = 0.f;s_gain=1.f; vg_label();ui_tick(); }
 
 static void cb_cur_cycle(lv_event_t *e)
 {
@@ -2791,26 +3062,32 @@ static void trig_refresh(void)
         chip_selected_c(s_chip_edge, true, V32_C_TRIGGER);
     }
     if(s_chip_lev) {
+        if(!isfinite(s_trig_counts))s_trig_counts=(s_m1.vmin+s_m1.vmax)*.5f;
         /* 显示电压而不是百分比：50% 对用户没有意义，
            示波器上这个旋钮标的永远是伏特 */
         const float k3 = V32_ADC_MV_PER_LSB / 1000.0f;
-        const float lv = (s_m1.vmin + (s_m1.vmax - s_m1.vmin) * s_trig_lev) * k3;
+        const float lv = s_trig_counts * k3;
         if(fabsf(lv) < 1.f) snprintf(b, sizeof b, "电平 %.0fmV", (double)(lv*1000.f));
         else                snprintf(b, sizeof b, "电平 %.2fV", (double)lv);
         chip_set_text(s_chip_lev, b);
         chip_selected_c(s_chip_lev, true, V32_C_TRIGGER);
     }
 }
-static void cb_trig_mode(lv_event_t *e) { LV_UNUSED(e); s_trig_mode = (s_trig_mode + 1) % 3; trig_refresh(); ui_tick(); }
+static void cb_trig_mode(lv_event_t *e) { LV_UNUSED(e);s_single_armed=s_single_done=0;s_trig_wait=0;
+    s_trig_mode=(s_trig_mode+1)%3;if(!isfinite(s_trig_counts))s_trig_counts=(s_m1.vmin+s_m1.vmax)*.5f;
+    chip_set_text(s_chip_single,"单次");trig_refresh();ui_tick(); }
 static void cb_trig_edge(lv_event_t *e) { LV_UNUSED(e); s_trig_edge = !s_trig_edge; trig_refresh(); ui_tick(); }
-static void cb_trig_lev_dec(lv_event_t *e){ LV_UNUSED(e); s_trig_lev -= 0.05f; if(s_trig_lev < 0.f) s_trig_lev = 0.f; trig_refresh(); }
-static void cb_trig_lev_inc(lv_event_t *e){ LV_UNUSED(e); s_trig_lev += 0.05f; if(s_trig_lev > 1.f) s_trig_lev = 1.f; trig_refresh(); }
-static void cb_trig_lev_auto(lv_event_t *e){ LV_UNUSED(e); s_trig_lev = 0.5f; trig_refresh(); }
+static void cb_trig_lev_dec(lv_event_t *e){ LV_UNUSED(e);if(!isfinite(s_trig_counts))s_trig_counts=(s_m1.vmin+s_m1.vmax)*.5f; s_trig_counts-=fmaxf(1.f,(s_m1.vmax-s_m1.vmin)*.05f); trig_refresh(); }
+static void cb_trig_lev_inc(lv_event_t *e){ LV_UNUSED(e);if(!isfinite(s_trig_counts))s_trig_counts=(s_m1.vmin+s_m1.vmax)*.5f; s_trig_counts+=fmaxf(1.f,(s_m1.vmax-s_m1.vmin)*.05f); trig_refresh(); }
+static void cb_trig_lev_auto(lv_event_t *e){ LV_UNUSED(e); s_trig_counts=(s_m1.vmin+s_m1.vmax)*.5f; trig_refresh(); }
 
 static void cb_math_cycle(lv_event_t *e)
 {
     LV_UNUSED(e);
     s_math_mode = (s_math_mode + 1) % 6;
+    if(s_math_mode>=1 && s_math_mode<=4 && s_full_n>=64 && s_zoom_span>s_full_n*3/4){
+        s_zoom_span=s_full_n*3/4;s_zoom_start=(s_full_n-s_zoom_span)/2;s_tb_manual=1;
+    }
     static const char *nm[6] = { "关", "A+B", "A-B", "A×B", "A÷B", "XY" };
     if(s_chip_math) {
         char b[16];
@@ -2828,10 +3105,21 @@ static void cb_math_cycle(lv_event_t *e)
     ui_tick();
 }
 
+static void cb_spec_source(lv_event_t *e)
+{
+    LV_UNUSED(e);
+    s_fft_raw_source = !s_fft_raw_source;
+    if(!s_fft_raw_source) S.win_idx = WIN_DEF;
+    if(s_full_n>=64)real_compute_fft(s_full_n,s_real_fft_fs);
+    ui_tick();
+}
+
 static void cb_win_cycle(lv_event_t *e)
 {
     LV_UNUSED(e);
+    s_fft_raw_source = true;
     S.win_idx = (S.win_idx + 1) % 3;
+    if(s_full_n>=64)real_compute_fft(s_full_n,s_real_fft_fs);
     const char *wn = WIN_NAME[S.win_idx];
     if(dbg_on())
         fprintf(stderr, "[win] 窗函数 -> %d (%s)\n", S.win_idx, wn);
@@ -2840,6 +3128,19 @@ static void cb_win_cycle(lv_event_t *e)
     /* 该页没有下拉框了，窗名由芯片自己显示 */
     if(s_lbl_fft_win) lv_label_set_text(s_lbl_fft_win, wn);
     ui_tick();
+}
+
+static void cb_image_clear(lv_event_t *e)
+{
+    LV_UNUSED(e);image_receiver_clear(&s_image);s_image_packets_seen=0;s_image_packet_ms=0;
+    s_image_drawn_revision=UINT32_MAX;ook_reset(&s_ook);bpsk_reset(&s_bpsk);image_refresh();
+}
+
+static void cb_image_mode(lv_event_t *e)
+{
+    int mode=(int)(intptr_t)lv_event_get_user_data(e);
+    s_image_enabled=true;cb_image_clear(e);s_ook_on=true;s_ook_test=false;s_ook_rate=3;
+    analysis_apply(mode,s_an_ch,1);an_chips_refresh();
 }
 
 /*
@@ -2863,7 +3164,11 @@ static int s_an_send_pending;
 
 static void analysis_apply(int type, int ch, int rate)
 {
+    if(type<0 || type>7 || ch<0 || ch>1 || rate<0 || rate>2)return;
+    ook_reset(&s_ook);
+    bpsk_reset(&s_bpsk);
     s_an_type = type; s_an_ch = ch; s_an_rate = rate;
+    s_an_retune_error=0;s_an_override=0;
     s_an_last_tap_ms = lv_tick_get();
     s_an_send_pending = 1;      /* 命令延后 250ms 发（等连点结束） */
 }
@@ -2889,7 +3194,8 @@ static void analysis_send_now(void)
         s_an_send_pending = 0;
         return;
     }
-    const uint32_t fcw=v32_fcw_from_hz(center);
+    if(s_an_override)center=(double)s_an_override_fcw*65000000.0/4294967296.0;
+    const uint32_t fcw=s_an_override?s_an_override_fcw:v32_fcw_from_hz(center);
     s_an_tx_failed=(v32_cmd_apply(s_an_type,s_an_ch,s_an_rate,fcw,2)!=0);
     if(!s_an_tx_failed) { s_an_target_fcw=fcw;s_an_have_target=1; }
     else fprintf(stderr,"[ana-cfg] write failed; configuration not confirmed\n");
@@ -2903,17 +3209,40 @@ static void analysis_send_now(void)
 }
 
 static const char *AN_TYPE_NAME[8] = {
-    "关", "AM", "FM", "FSK", "QPSK", "OOK", "BPSK", "PM"
+    "关", "AM", "FM", "2FSK", "QPSK", "OOK", "BPSK", "PM"
 };
 static const char *AN_RATE_NAME[3] = { "档8k", "标准", "宽档" };
 
+static void auto_chip_refresh(void)
+{
+    if(!s_chip_auto)return;
+    const bool tune=(S.page==UI_PAGE_MOD || S.page==UI_PAGE_IMAGE) && S.use_real;
+    chip_set_text(s_chip_auto,tune?"↺ 对频":"⊞ 自动");
+    if(tune && !s_an_type)lv_obj_add_state(s_chip_auto,LV_STATE_DISABLED);
+    else lv_obj_remove_state(s_chip_auto,LV_STATE_DISABLED);
+}
+
 static void an_chips_refresh(void)
 {
+    auto_chip_refresh();
     if(s_chip_mt) { char b[16]; snprintf(b, sizeof b, "制式 %s", AN_TYPE_NAME[s_an_type]);
                     chip_set_text(s_chip_mt, b);
                     chip_selected_c(s_chip_mt, s_an_type != 0, V32_C_MATH); }
-    if(s_chip_mv){chip_set_text(s_chip_mv,s_mod_raw_view?"波形 原始":"波形 包络");chip_selected_c(s_chip_mv,!s_mod_raw_view,V32_C_CH1);}
+    if(s_chip_mv){const char *view=(s_an_type==4 || s_an_type==6)?"波形 I/Q":(s_an_type==2 || s_an_type==3)?"波形 频偏":s_an_type==7?"波形 相位":"波形 包络";chip_set_text(s_chip_mv,s_mod_raw_view?"波形 原始":view);chip_selected_c(s_chip_mv,!s_mod_raw_view,V32_C_CH1);}
     if(s_chip_mw){char t[32];snprintf(t,sizeof t,"窗口 %ums",MOD_WINDOW_MS[s_mod_window]);chip_set_text(s_chip_mw,t);if(s_mod_raw_view)lv_obj_add_state(s_chip_mw,LV_STATE_DISABLED);else lv_obj_remove_state(s_chip_mw,LV_STATE_DISABLED);}
+    if(s_chip_ook_on){
+        lv_obj_t *chips[]={s_chip_ook_on,s_chip_ook_baud,s_chip_ook_test};
+        for(int i=0;i<3;i++)if(s_an_type==5 || s_an_type==3 || s_an_type==6)lv_obj_remove_flag(chips[i],LV_OBJ_FLAG_HIDDEN);else lv_obj_add_flag(chips[i],LV_OBJ_FLAG_HIDDEN);
+        chip_set_text(s_chip_ook_on,s_ook_on?"解码 开":"解码 关");
+        char t[24];snprintf(t,sizeof t,"%dBd",OOK_RATES[s_ook_rate]);chip_set_text(s_chip_ook_baud,t);
+        chip_set_text(s_chip_ook_test,s_an_type==6?(s_ook_test?"PN7 开":"PN7 关"):(s_ook_test?"0101 开":"0101 关"));
+    }
+    if(s_chip_bpsk_inv){
+        lv_obj_t *b[]={s_chip_bpsk_inv,s_chip_bpsk_view};
+        for(int k=0;k<2;k++)if(s_an_type==6)lv_obj_remove_flag(b[k],LV_OBJ_FLAG_HIDDEN);else lv_obj_add_flag(b[k],LV_OBJ_FLAG_HIDDEN);
+        chip_set_text(s_chip_bpsk_inv,s_bpsk_invert?"INV 1":"INV 0");
+        chip_set_text(s_chip_bpsk_view,s_bpsk_symbols?"SYM":"RAW IQ");
+    }
     /* FPGA 内部 ADC 0/1 -> 界面显示 CH1/CH2（交付包 v3：只在 UI 映射） */
     if(s_chip_mc) { char b[16]; snprintf(b, sizeof b, "通道 CH%d", s_an_ch + 1);
                     chip_set_text(s_chip_mc, b);
@@ -2925,11 +3254,22 @@ static void an_chips_refresh(void)
 /* These two controls only change the display. They never configure the FPGA. */
 static void cb_mod_view(lv_event_t *e){LV_UNUSED(e);s_mod_raw_view=!s_mod_raw_view;an_chips_refresh();}
 static void cb_mod_window(lv_event_t *e){LV_UNUSED(e);s_mod_window=(s_mod_window+1u)%5u;an_chips_refresh();}
+static void cb_ook_on(lv_event_t *e){LV_UNUSED(e);s_ook_on=!s_ook_on;ook_reset(&s_ook);bpsk_reset(&s_bpsk);an_chips_refresh();}
+static void cb_ook_baud(lv_event_t *e){LV_UNUSED(e);s_ook_rate=(s_ook_rate+1)%5;ook_reset(&s_ook);bpsk_reset(&s_bpsk);an_chips_refresh();}
+static void cb_ook_test(lv_event_t *e){LV_UNUSED(e);s_ook_test=!s_ook_test;ook_reset(&s_ook);bpsk_reset(&s_bpsk);an_chips_refresh();}
+static void cb_bpsk_inv(lv_event_t *e){LV_UNUSED(e);s_bpsk_invert=!s_bpsk_invert;bpsk_reset(&s_bpsk);an_chips_refresh();}
+static void cb_bpsk_view(lv_event_t *e){LV_UNUSED(e);s_bpsk_symbols=!s_bpsk_symbols;an_chips_refresh();}
 
 static void cb_an_type(lv_event_t *e)
 {
     LV_UNUSED(e);
-    analysis_apply((s_an_type + 1) % 8, s_an_ch, s_an_rate);
+    /* QPSK RF/host recovery was tested on 2026-10-22. The screen exposes
+       its existing IQ observation; host symbol recovery is not ported here. */
+    static const int available[]={0,1,2,7,5,3,6,4};
+    int next=0;
+    for(unsigned i=0;i<sizeof available/sizeof available[0];i++)
+        if(s_an_type==available[i])next=available[(i+1)%(sizeof available/sizeof available[0])];
+    analysis_apply(next,s_an_ch,s_an_rate);
     an_chips_refresh();
 }
 static void cb_an_ch(lv_event_t *e)
@@ -2943,60 +3283,6 @@ static void cb_an_rate(lv_event_t *e)
     LV_UNUSED(e);
     analysis_apply(s_an_type, s_an_ch, (s_an_rate + 1) % 3);
     an_chips_refresh();
-}
-
-/* 解调显示开关：开 = FPGA 切 AM 解调（示波器页画解调 I/Q），
- * 关 = 回示波模式（恢复波形帧）。和锁相页「调制」芯片共用 s_mod_idx，
- * 两处状态同步；AM 是当前发生器的调制制式。 */
-static void cb_demod_toggle(lv_event_t *e)
-{
-    LV_UNUSED(e);
-    v32_iq_view_t iv;
-    const bool on = (v32_get_iq(&iv) == 0);      /* 现在关着 -> 点开 */
-    if(on) {
-        s_mod_idx = V32_MOD_AM;
-        if(S.use_real) { v32_cmd_mode(1); v32_aa5_set_modulation((uint32_t)s_mod_idx); }
-    } else {
-        s_mod_idx = V32_MOD_AUTO;
-        if(S.use_real) { v32_cmd_mode(0); v32_aa5_set_modulation((uint32_t)s_mod_idx); }
-    }
-    if(s_chip_demod) {
-        chip_set_text(s_chip_demod, on ? "解调 开" : "解调 关");
-        chip_selected_c(s_chip_demod, on, V32_C_WARN);
-    }
-    ui_tick();
-}
-
-static void cb_mod_cycle(lv_event_t *e)
-{
-    LV_UNUSED(e);
-    s_mod_idx = (s_mod_idx + 1) % V32_MOD_COUNT;
-    if(s_chip_mod) {
-        char b[16];
-        snprintf(b, sizeof b, "调制 %s", MOD_NAME[s_mod_idx]);
-        chip_set_text(s_chip_mod, b);
-        chip_selected(s_chip_mod, s_mod_idx != V32_MOD_AUTO);
-    }
-    if(S.use_real) {
-        v32_aa5_set_modulation((uint32_t)s_mod_idx);
-        switch(s_mod_idx) {
-            case V32_MOD_AUTO: v32_cmd_mode(0); break;   /* 回示波模式 */
-            case V32_MOD_AM:   v32_cmd_mode(1); break;
-            case V32_MOD_FM:   v32_cmd_mode(2); break;
-            case V32_MOD_PM:   v32_cmd_mode(7); break;
-            default: break;      /* 锁相/基带：旧协议无对应 */
-        }
-    }
-    if(dbg_on())
-        fprintf(stderr, "[mod] 调制模式 -> %d (%s)\n", s_mod_idx, MOD_NAME[s_mod_idx]);
-    ui_tick();
-}
-
-static void cb_tau(lv_event_t *e)
-{
-    S.tau_idx = (int)lv_dropdown_get_selected(lv_event_get_target(e));
-    if(TAU_MS[S.tau_idx] >= 1000) lv_label_set_text(s_lbl_lock_tau, "1 s");
-    else                          lv_label_set_text_fmt(s_lbl_lock_tau, "%d ms", TAU_MS[S.tau_idx]);
 }
 
 static void cb_ch1(lv_event_t *e)
@@ -3041,6 +3327,7 @@ static void cb_ai(lv_event_t *e)
 static void cb_run(lv_event_t *e)
 {
     LV_UNUSED(e);
+    if(s_single_armed || s_single_done){s_single_armed=s_single_done=s_trig_wait=0;s_trig_mode=0;chip_set_text(s_chip_single,"单次");trig_refresh();}
     S.running = !S.running;
     chip_set_text(s_chip_run, S.running ? "⏸ 暂停" : "▶ 运行");
     set_run_status(S.running);
@@ -3060,6 +3347,50 @@ static void cb_run(lv_event_t *e)
 static void cb_auto(lv_event_t *e)
 {
     LV_UNUSED(e);
+    if((S.page==UI_PAGE_MOD || S.page==UI_PAGE_IMAGE) && S.use_real) {
+        if(!s_an_type)return;
+        v32_meas_view_t measured;
+        uint32_t hz=0;
+        if(v32_get_meas(&measured) && (measured.fft_valid & (1u<<s_an_ch)))
+            hz=s_an_ch?measured.fft_hz1:measured.fft_hz0;
+        if(!hz || hz>=32500000u) {
+            s_an_retune_error=1;
+            fprintf(stderr,"[ana-retune] rejected: no fresh valid carrier for ch=%d; no command sent\n",s_an_ch);
+            ui_tick();return;
+        }
+        uint32_t fcw=v32_fcw_from_hz((double)hz);
+        s_an_retune_error=0;
+        if(s_an_have_target && !s_an_send_pending && !s_an_tx_failed && fcw==s_an_target_fcw)return;
+        /* A verified BPSK receiver already tracks small carrier offsets. Do not
+         * discard valid bits for FFT-peak jitter; the actual DDC/readback stays
+         * unchanged. Explicit frequency commands remain exact. */
+        v32_ana_view_t active;
+        if(s_an_type==6 && s_ook_on && s_ook_test && s_an_have_target &&
+           !s_an_send_pending && !s_an_tx_failed &&
+           s_bpsk.have_frame && s_bpsk.locked && s_bpsk.pn_locked &&
+           s_bpsk.pn_checks>=256 && !s_bpsk.pn_errors && !s_bpsk.erasures &&
+           v32_get_ana(&active) && active.valid && !active.flags && active.nvalid==256 &&
+           ana_echo_matches(&active,s_an_type,s_an_ch,s_an_rate,s_an_target_fcw) &&
+           active.cfg_id==s_bpsk.cfg && active.mode==6 && active.kind==0 &&
+           active.channel==(unsigned)s_an_ch && active.fcw==s_an_target_fcw &&
+           s_bpsk.fcw==active.fcw && s_bpsk.channel==active.channel &&
+           s_bpsk.decim==active.decim && s_bpsk.baud==OOK_RATES[s_ook_rate]) {
+            uint32_t delta=fcw>s_an_target_fcw?fcw-s_an_target_fcw:s_an_target_fcw-fcw;
+            uint32_t tolerance=v32_fcw_from_hz((double)s_bpsk.baud/16.0);
+            if(delta<=tolerance) {
+                fprintf(stderr,"[ana-retune] keep verified BPSK ch=%d target_fcw=%u measured_hz=%u delta_hz=%.3f tolerance_hz=%.3f\n",s_an_ch,s_an_target_fcw,hz,(double)delta*65000000.0/4294967296.0,(double)s_bpsk.baud/16.0);
+                return;
+            }
+        }
+        analysis_apply(s_an_type,s_an_ch,s_an_rate);
+        /* Snapshot the selected channel's fresh measurement. Do not silently
+         * fall back to a different channel or 10 MHz during the debounce. */
+        s_an_override=1;s_an_override_fcw=fcw;
+        fprintf(stderr,"[ana-retune] requested ch=%d hz=%u fcw=%u\n",s_an_ch,hz,fcw);
+        ui_tick();return;
+    }
+    if(s_single_armed || s_single_done){s_trig_mode=1;s_single_armed=s_single_done=s_trig_wait=0;chip_set_text(s_chip_single,"单次");trig_refresh();}
+    s_vertical_offset[0]=s_vertical_offset[1]=0.f;
     s_tb_manual = 0;      /* 自动设置 = 交回 auto_decimation 管 */
 
     if(dbg_on()) fprintf(stderr, "[auto] pressed use_real=%d full_n=%d\n", (int)S.use_real, s_full_n);
@@ -3097,11 +3428,12 @@ static void cb_reset(lv_event_t *e)
     S.noise = DEMO_NOISE_PCT;
     S.freq_idx = FREQ_DEF; S.tb_idx = TIMEBASE_DEF;
     S.win_idx = WIN_DEF;
+    s_fft_raw_source = false;
     {
         const char *e = getenv("WAVE_FFT_CH");   /* 调试用：直接指定 FFT 通道 0/1/2 */
         S.fft_ch = e ? atoi(e) : 0;
         if(S.fft_ch < 0 || S.fft_ch > 2) S.fft_ch = 0;
-    } S.tau_idx = TAU_DEF; S.phase = 43.7f;
+    } S.phase = 43.7f;
     S.sig.t = 0.f;
 
     /* 显示缩放回位：整帧 + 纵向 1:1（这是「复位」，不是「自动」——
@@ -3109,17 +3441,19 @@ static void cb_reset(lv_event_t *e)
     s_zoom_span  = 0;
     s_zoom_start = 0;
     s_gain       = 1.0f;
+    s_vertical_offset[0]=s_vertical_offset[1]=0.f;
+    s_trig_mode=s_single_armed=s_single_done=s_trig_wait=0;s_trig_counts=NAN;
+    s_math_mode=0;chip_set_text(s_chip_math,"数学 关");chip_set_text(s_chip_single,"单次");
+    chip_selected_c(s_chip_math,false,V32_C_MATH);
+    plot_set_mode(s_plot_scope,PLOT_SCOPE);trig_refresh();
     S.auto_fit   = false;
     /* 控件回位（设了下拉框会触发 VALUE_CHANGED，顺手把状态也同步了） */
     lv_dropdown_set_selected(s_dd_freq, (uint32_t)FREQ_DEF);
     {
-        lv_obj_t *dd = lv_obj_get_child(s_ctrl_grp[UI_PAGE_SCOPE], 1);
-        if(dd) lv_dropdown_set_selected(dd, (uint32_t)TIMEBASE_DEF);
+        if(s_dd_tb) lv_dropdown_set_selected(s_dd_tb, (uint32_t)TIMEBASE_DEF);
         if(s_chip_win) { chip_set_text(s_chip_win, WIN_NAME[WIN_DEF]); chip_selected(s_chip_win, true); }
         /* 频谱通道回「自动」 */
         fft_ch_set(0);
-        dd = lv_obj_get_child(s_ctrl_grp[UI_PAGE_LOCK], 1);
-        if(dd) lv_dropdown_set_selected(dd, (uint32_t)TAU_DEF);
     }
     chip_set_text(s_chip_ch1, "CH1 开"); chip_selected(s_chip_ch1, true);
     chip_set_text(s_chip_ch2, "CH2 开"); chip_selected(s_chip_ch2, true);
@@ -3130,7 +3464,6 @@ static void cb_reset(lv_event_t *e)
     /* 时基/幅度由 update_axis_label() 统一写，别在这里写死字符串：
      * 真实链路下写死 "2 µs/格" 会和实际帧长（63 µs 满屏）自相矛盾。 */
     update_axis_label();
-    lv_label_set_text(s_lbl_lock_tau, "10 ms");
     lv_label_set_text(s_lbl_fft_win, WIN_NAME[WIN_DEF]);
 
     ui_set_page(UI_PAGE_SCOPE);
@@ -3152,7 +3485,7 @@ static void ctrl_set_page(int page)
 {
     for(int i = 0; i < UI_PAGE_COUNT; i++) {
         if(s_ctrl_grp[i] == NULL) continue;
-        if(i == page) lv_obj_remove_flag(s_ctrl_grp[i], LV_OBJ_FLAG_HIDDEN);
+        if(i == page || (page==UI_PAGE_IMAGE && i==UI_PAGE_MOD)) lv_obj_remove_flag(s_ctrl_grp[i], LV_OBJ_FLAG_HIDDEN);
         else          lv_obj_add_flag(s_ctrl_grp[i], LV_OBJ_FLAG_HIDDEN);
     }
     /* 没挂到 s_ctrl_grp 的那几组，逐个按页开关 */
@@ -3163,6 +3496,11 @@ static void ctrl_set_page(int page)
     GRP_SHOW(s_g_ai,  page == UI_PAGE_AI);
     GRP_SHOW(s_g_sys, page == UI_PAGE_SYSTEM);
     #undef GRP_SHOW
+    lv_obj_t *image_hidden[]={s_chip_mv,s_chip_mw,s_chip_ook_test};
+    for(int i=0;i<3;i++)if(image_hidden[i]){
+        if(page==UI_PAGE_IMAGE)lv_obj_add_flag(image_hidden[i],LV_OBJ_FLAG_HIDDEN);
+        else if(page==UI_PAGE_MOD)lv_obj_remove_flag(image_hidden[i],LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void build_controls(lv_obj_t *root)
@@ -3260,8 +3598,8 @@ static void build_controls(lv_obj_t *root)
     /* Math：关 / A+B / A-B / XY（点一下换一个，亮绿） */
     {
         lv_obj_t *gm = mk_group(gsc, NULL);
-        s_chip_math = mk_chip(gm, "数学 A-B", cb_math_cycle);
-        chip_selected_c(s_chip_math, true, V32_C_MATH);
+        s_chip_math = mk_chip(gm, "数学 关", cb_math_cycle);
+        chip_selected_c(s_chip_math, false, V32_C_MATH);
     }
 
 
@@ -3278,6 +3616,7 @@ static void build_controls(lv_obj_t *root)
         s_chip_fch[0] = mk_chip(rowc, "自动", cb_fch_auto);
         s_chip_fch[1] = mk_chip(rowc, "CH1",  cb_fch_ch1);
         s_chip_fch[2] = mk_chip(rowc, "CH2",  cb_fch_ch2);
+        s_chip_spec_source = mk_chip(rowc, "AUTO", cb_spec_source);
         chip_selected(s_chip_fch[0], S.fft_ch == 0);
         chip_selected(s_chip_fch[1], S.fft_ch == 1);
         chip_selected(s_chip_fch[2], S.fft_ch == 2);
@@ -3298,19 +3637,9 @@ static void build_controls(lv_obj_t *root)
     chip_selected(s_chip_win, true);
 
 
-    /*
-     * 锁相页参数组：调制模式 + 积分时间。
-     * 调制芯片原来放在示波器控制条，加在那里会让整条溢出（⏸暂停被挤到
-     * x=1123，屏外）—— SET_MODULATION 本来就是解调路径（锁相/NCO/基带）
-     * 的选择，放锁相页语义也对。芯片循环切换：自动/AM/FM/PM/锁相/基带。
-     */
-    lv_obj_t *gl = mk_group(cp, NULL);
-    s_g_tau = gl;
-    s_chip_mod = mk_chip(gl, "调制 自动", cb_mod_cycle);
-    chip_selected_c(s_chip_mod, false, V32_C_WARN);
-    lv_obj_t *dd_t = mk_dropdown(gl, TAU_OPTS, TAU_DEF, cb_tau);
-    lv_obj_set_style_max_width(dd_t, V32_SEL_MAX_W, LV_PART_MAIN);
-    s_ctrl_grp[UI_PAGE_LOCK] = gl;
+    lv_obj_t *gl=mk_group(cp,NULL);s_g_tau=gl;
+    mk_label(gl,0,0,"锁相 · FPGA 测量",V32_FONT_SMALL,V32_C_LABEL);
+    s_ctrl_grp[UI_PAGE_LOCK]=gl;
 
     lv_obj_t *ga = mk(cp, 0, 0, LV_SIZE_CONTENT, V32_CHIP_H);
     /* 重建开关是**全局**的（示波器页也跟着变），所以放在主控制条，不放页内组 */
@@ -3325,6 +3654,10 @@ static void build_controls(lv_obj_t *root)
     s_chip_mr = mk_chip(gm2, "标准", cb_an_rate);
     s_chip_mv = mk_chip(gm2,"波形 包络",cb_mod_view);
     s_chip_mw = mk_chip(gm2,"窗口 4ms",cb_mod_window);
+    s_chip_ook_on=mk_chip(gm2,"解码 开",cb_ook_on);
+    s_chip_ook_baud=mk_chip(gm2,"1000Bd",cb_ook_baud);
+    s_chip_ook_test=mk_chip(gm2,"0101 关",cb_ook_test);
+    lv_obj_add_flag(s_chip_ook_on,LV_OBJ_FLAG_HIDDEN);lv_obj_add_flag(s_chip_ook_baud,LV_OBJ_FLAG_HIDDEN);lv_obj_add_flag(s_chip_ook_test,LV_OBJ_FLAG_HIDDEN);
     chip_selected_c(s_chip_mt, false, V32_C_MATH);
     chip_selected_c(s_chip_mc, false, V32_C_CH2);
     chip_selected_c(s_chip_mr, false, V32_C_WARN);
@@ -3334,7 +3667,7 @@ static void build_controls(lv_obj_t *root)
     /* 这句原来是写死的「未连接真实硬件」。走真实链路时它会自相矛盾，
      * 所以按数据源切换。 */
     static char s_live_txt[48];
-    if(S.use_real) snprintf(s_live_txt, sizeof s_live_txt, "V32CAP3 · 串口 %d · 实时",
+    if(S.use_real) snprintf(s_live_txt, sizeof s_live_txt, "FPGA · 串口 %d · 实时",
                             wave_source_v32_get_baud());
     mk_label(gsys, 0, 0,
              S.use_real ? s_live_txt : "当前为离线演示，未连接真实硬件",
@@ -3347,7 +3680,7 @@ static void build_controls(lv_obj_t *root)
      * 挨着的两个常用键，捏乱了之后第一反应就是先按自动。 */
     s_chip_ai = mk_chip(bar, "重建 开", cb_ai);   /* 全局开关 */
     chip_selected(s_chip_ai, S.ai);              /* S.ai 初始为 true，补一次选中色 */
-    mk_chip(bar, "⊞ 自动", cb_auto);
+    s_chip_auto=mk_chip(bar, "⊞ 自动", cb_auto);
     mk_chip(bar, "↺ 复位", cb_reset);
     mk_chip(bar, "⛶ 全屏", cb_fullscreen);
     s_chip_run = mk_chip(bar, "⏸暂停", cb_run);   /* 暂停放最右（照 scope_proto） */
@@ -3375,7 +3708,7 @@ static void nav_selected(lv_obj_t *b, bool on)
 static void build_nav(lv_obj_t *root)
 {
     static const char *TXT[UI_PAGE_COUNT] = {
-        "示波器", "频谱", "锁相", "重建", "调制", "系统"
+        "示波器", "频谱", "锁相", "重建", "调制", "系统", "图片"
     };
 
     lv_obj_t *nav = mk(root, 0, NAV_Y0, V32_SHELL_W, V32_ROW_NAV);
@@ -3420,217 +3753,48 @@ static uint32_t s_last_sec = 0;
 static uint32_t s_fps_t0 = 0, s_fps_f0 = 0;
 static uint32_t s_app_t0 = 0;
 
+static void scope_metric_layout(void)
+{
+    static int shown=-1;
+    if(shown==!!s_cur_on)return;
+    shown=!!s_cur_on;
+    lv_obj_t *values[]={s_lbl_v1,s_lbl_m_vmax,s_lbl_m_vmin,s_lbl_m_vamp,
+        s_lbl_m_vrms,s_lbl_m_vavg,s_lbl_m_per,s_lbl_scope_freq,s_lbl_m_duty,s_lbl_m_rise,
+        s_lbl_cur_t1,s_lbl_cur_t2,s_lbl_cur_dt,s_lbl_cur_idt,s_lbl_cur_v1,s_lbl_cur_v2,s_lbl_cur_dv};
+    int y=TITLE_H;
+    for(int i=0;i<17;i++){
+        lv_obj_t *row=lv_obj_get_parent(values[i]);
+        bool visible=i<10 || shown;
+        if(shown && (i==1 || i==2 || i==3 || i==5 || i==6 || i==8 || i==9))visible=false;
+        if(visible){lv_obj_remove_flag(row,LV_OBJ_FLAG_HIDDEN);lv_obj_set_y(row,y);y+=METRIC_H;}
+        else lv_obj_add_flag(row,LV_OBJ_FLAG_HIDDEN);
+        if(i>=10)lv_obj_set_style_text_color(values[i],(i==10 || i==14)?V32_C_CURSOR_A:(i==11 || i==15)?V32_C_CURSOR_B:V32_C_TEXT,0);
+    }
+}
+
+static void scope_acquisition_status(void)
+{
+    if(!s_scope_acq || S.page!=UI_PAGE_SCOPE)return;
+    static uint32_t t0,raw0,flips0;
+    uint32_t now=lv_tick_get(),flips=0;drm_display_flip_stats(&flips,NULL);
+    const v32_stats_t *st=v32_get_stats();
+    if(!t0){t0=now;raw0=st->frames_ok;flips0=flips;return;}
+    uint32_t dt=now-t0;if(dt<500)return;
+    const char *state=s_single_done?"SINGLE HOLD":s_trig_wait?"TRIG WAIT":s_trig_mode&&s_trig_hit?"TRIGGERED":!S.running?"PAUSED":(S.use_real&&!s_real_valid)?"NO DATA":"LIVE";
+    lv_label_set_text_fmt(s_scope_acq,"%s | RAW %.1f/s | UI %.1f fps",state,
+        (st->frames_ok-raw0)*1000.0/dt,(flips-flips0)*1000.0/dt);
+    lv_obj_set_style_text_color(s_scope_acq,(!S.running || (S.use_real&&!s_real_valid))?V32_C_WARN:V32_C_LIVE,0);
+    t0=now;raw0=st->frames_ok;flips0=flips;
+}
+
 static void tick_scope(void)
 {
     static float ch1[PLOT_MAX_PTS], ch2[PLOT_MAX_PTS];
     const int n = PLOT_MAX_PTS;
 
+    scope_metric_layout();
     real_update();
-
-    /*
-     * 调制模式（FPGA 停发波形帧、改发 V32IQ01! 解调帧）：示波器页
-     * 直接把解调 I/Q 画出来 —— 用户在默认页就能看调制波，不用切
-     * 锁相页。解调帧一帧 256 点 × decim4096 ≈ 16 ms 连续窗，
-     * 1 kHz 调制周期 1 ms ≈ 16 点/周期，波形真实连续。
-     * 帧级测量没有新波形帧，右栏读数自动变「—」，诚实。
-     */
-    {
-        v32_iq_view_t ivs;
-        if(S.use_real && v32_get_iq(&ivs) && ivs.points >= 2u) {
-            /*
-             * 按时基档取窗口（◀▶ 可拉）：解调样率 fs_iq = fs/decim
-             * （4096 抽取下 ≈ 15.87 kHz，一帧 256 点 ≈ 16 ms）。
-             * 窗口点数 = TB×10×fs_iq，超出一帧就 cap 满屏（读数按实际
-             * 窗口折算，见 update_axis_label 的同款计算）；比一帧短就
-             * 只取**末尾**最新一段（解调数据关心最新状态）。
-             */
-            const float fs_iq = (ivs.fs_hz && ivs.decim)
-                              ? (float)ivs.fs_hz / (float)ivs.decim : 15869.0f;
-            int want = (int)(TB_US[s_tb_idx] * 1e-6f * 10.0f * fs_iq + 0.5f);
-            if(want < 8) want = 8;
-            const int pts = (int)ivs.points;
-            int w0 = 0;               /* 窗口起点（帧内分支填；math 块要用） */
-
-            /* 追加进解调滚动缓冲（满丢前半） */
-            {
-                if(s_riq_len + pts > ROLL_N) {
-                    const int drop = ROLL_N / 2;
-                    memmove(s_riq_i, s_riq_i + drop, (size_t)(ROLL_N - drop) * sizeof(int16_t));
-                    memmove(s_riq_q, s_riq_q + drop, (size_t)(ROLL_N - drop) * sizeof(int16_t));
-                    s_riq_len -= drop;
-                }
-                const int cp = pts < (ROLL_N - s_riq_len) ? pts : (ROLL_N - s_riq_len);
-                memcpy(s_riq_i + s_riq_len, ivs.i, (size_t)cp * sizeof(int16_t));
-                memcpy(s_riq_q + s_riq_len, ivs.q, (size_t)cp * sizeof(int16_t));
-                s_riq_len += cp;
-            }
-
-            if(want > pts && s_riq_len >= n) {
-                /*
-                 * 深时基：从解调滚动缓冲取最近一段（等效时间，帧死区压缩）。
-                 * min/max 分桶映射满屏，I/Q 联合归一 —— 包络慢变特征正确。
-                 */
-                const int take = (want < s_riq_len) ? want : s_riq_len;
-                int st0  = s_riq_len - take;
-                /* 包络峰对齐（与帧内分支同一套道理）：窗口锚到 |I| 峰 20% 处 */
-                {
-                    int b = s_riq_len - take / 2;
-                    if(b < st0) b = st0;
-                    int best = b, bv = -1;
-                    for(int k = b; k < s_riq_len; k++) {
-                        int v = (int)s_riq_i[k];
-                        if(v < 0) v = -v;
-                        if(v > bv) { bv = v; best = k; }
-                    }
-                    st0 = best - take / 5;
-                    if(st0 < s_riq_len - take) st0 = s_riq_len - take;
-                    if(st0 < 0) st0 = 0;
-                }
-                float peak = 1.0f;
-                for(int k = st0; k < s_riq_len; k++) {
-                    const float ai = fabsf((float)s_riq_i[k]);
-                    const float aq = fabsf((float)s_riq_q[k]);
-                    if(ai > peak) peak = ai;
-                    if(aq > peak) peak = aq;
-                }
-                const int buckets = n / 2;
-                for(int bk = 0; bk < buckets; bk++) {
-                    int st = st0 + (int)((long)bk * take / buckets);
-                    int en = st0 + (int)((long)(bk + 1) * take / buckets);
-                    if(en <= st) en = st + 1;
-                    if(en > s_riq_len) en = s_riq_len;
-                    int ii = st, iI = st, qq = st, qQ = st;
-                    for(int k = st; k < en; k++) {
-                        if(s_riq_i[k] < s_riq_i[ii]) ii = k;
-                        if(s_riq_i[k] > s_riq_i[iI]) iI = k;
-                        if(s_riq_q[k] < s_riq_q[qq]) qq = k;
-                        if(s_riq_q[k] > s_riq_q[qQ]) qQ = k;
-                    }
-                    float ya0 = 0.5f + (float)s_riq_i[ii < iI ? ii : iI] / (2.0f * peak);
-                    float ya1 = 0.5f + (float)s_riq_i[ii < iI ? iI : ii] / (2.0f * peak);
-                    float yb0 = 0.5f + (float)s_riq_q[qq < qQ ? qq : qQ] / (2.0f * peak);
-                    float yb1 = 0.5f + (float)s_riq_q[qq < qQ ? qQ : qq] / (2.0f * peak);
-                    if(ya0 < 0.f) ya0 = 0.f;  if(ya0 > 1.f) ya0 = 1.f;
-                    if(ya1 < 0.f) ya1 = 0.f;  if(ya1 > 1.f) ya1 = 1.f;
-                    if(yb0 < 0.f) yb0 = 0.f;  if(yb0 > 1.f) yb0 = 1.f;
-                    if(yb1 < 0.f) yb1 = 0.f;  if(yb1 > 1.f) yb1 = 1.f;
-                    ch1[2 * bk] = ya0;  ch1[2 * bk + 1] = ya1;
-                    ch2[2 * bk] = yb0;  ch2[2 * bk + 1] = yb1;
-                }
-            } else {
-                /*
-                 * 帧内窗口（浅档）。
-                 * ⚠️ 不做对齐的话每帧起始相位随机 —— 波形每帧乱平移，
-                 * 「看到的变化只是波形在跳」，时基疏密变化全被掩盖。
-                 * 这里把窗口锚到 |I| 峰（AM 包络峰）的 20% 位置：稳态
-                 * 信号下每帧都对齐到同一相位，波形稳定，效果等同触发。
-                 */
-                if(want > pts) want = pts;
-                w0 = pts - want;
-                {
-                    int b = pts - want * 3;  if(b < 0) b = 0;
-                    int best = b, bv = -1;
-                    for(int k = b; k < pts; k++) {
-                        int v = (int)ivs.i[k];
-                        if(v < 0) v = -v;
-                        if(v > bv) { bv = v; best = k; }
-                    }
-                    w0 = best - want / 5;
-                    if(w0 < 0) w0 = 0;
-                    if(w0 > pts - want) w0 = pts - want;
-                }
-
-                float peak = 1.0f;
-                for(int k = w0; k < pts; k++) {
-                    const float ai = fabsf((float)ivs.i[k]);
-                    const float aq = fabsf((float)ivs.q[k]);
-                    if(ai > peak) peak = ai;
-                    if(aq > peak) peak = aq;
-                }
-                for(int k = 0; k < n; k++) {
-                    const float t = (float)k * (float)(want - 1) / (float)(n - 1);
-                    const int a0 = w0 + (int)t;
-                    const int a1 = (a0 + 1 < pts) ? a0 + 1 : a0;
-                    const float fr = t - (float)(int)t;
-                    const float yi = (float)ivs.i[a0] * (1.f - fr) + (float)ivs.i[a1] * fr;
-                    const float yq = (float)ivs.q[a0] * (1.f - fr) + (float)ivs.q[a1] * fr;
-                    float ya = 0.5f + yi / (2.0f * peak);
-                    float yb = 0.5f + yq / (2.0f * peak);
-                    if(ya < 0.f) ya = 0.f;  if(ya > 1.f) ya = 1.f;
-                    if(yb < 0.f) yb = 0.f;  if(yb > 1.f) yb = 1.f;
-                    ch1[k] = ya;  ch2[k] = yb;
-                }
-            }
-            plot_set_trace(s_plot_scope, 0, ch1, n, V32_C_CH1, 2);    /* I */
-            plot_set_trace(s_plot_scope, 1, ch2, n, V32_C_CH2, 2);    /* Q */
-            /* 芯片状态与 FPGA 实际模式同步（服务重启/外部命令切过模式后，
-               初值「关」会对不上 —— 解调帧在到达就是「开」，变化才刷屏） */
-            {
-                static int s_demod_shown = -1;
-                if(s_demod_shown != 1 && s_chip_demod) {
-                    chip_set_text(s_chip_demod, "解调 开");
-                    chip_selected_c(s_chip_demod, true, V32_C_WARN);
-                    s_demod_shown = 1;
-                }
-            }
-            /*
-             * 数学在解调模式下也生效：对 I/Q 码值运算（独立量程归一）。
-             * I±Q 是线性组合（合/差矢量），有物理意义；×÷ 独立归一后
-             * 形状可看。XY 档：I/Q 本身就是 X/Y —— 切李萨如看相位关系。
-             */
-            {
-                static float mbuf[512];
-                if(s_math_mode == 5) {
-                    plot_set_mode(s_plot_scope, PLOT_XY);
-                } else {
-                    plot_set_mode(s_plot_scope, PLOT_SCOPE);
-                    if(s_math_mode >= 1 && s_math_mode <= 4 && want >= 8
-                       && want <= pts) {
-                        float mn = 1e30f, mx = -1e30f;
-                        const int nm = (want < 512) ? want : 512;
-                        for(int k = 0; k < nm; k++) {
-                            const float a = (float)ivs.i[w0 + k];
-                            const float b = (float)ivs.q[w0 + k];
-                            float v;
-                            switch(s_math_mode) {
-                                case 1:  v = a + b; break;
-                                case 2:  v = a - b; break;
-                                case 3:  v = a * b; break;
-                                default: v = (fabsf(b) < 2.0f) ? 0.f : a / b; break;
-                            }
-                            mbuf[k] = v;
-                            if(v < mn) mn = v;
-                            if(v > mx) mx = v;
-                        }
-                        if(mx - mn < 1e-6f) { mn = -1.f; mx = 1.f; }
-                        for(int k = 0; k < nm; k++)
-                            mbuf[k] = (mbuf[k] - mn) / (mx - mn);
-                        plot_set_trace(s_plot_scope, 2, mbuf, nm, V32_C_MATH, 2);
-                    } else {
-                        plot_hide_trace(s_plot_scope, 2);
-                    }
-                }
-            }
-            plot_set_cursors(s_plot_scope, 0, NULL, NULL, false);      /* 光标/触发停用 */
-            plot_set_trigger(s_plot_scope, false, 0.f);
-            plot_set_trigger_level(s_plot_scope, false, 0.5f);
-            update_axis_label();   /* 时基读数跟着解调窗口每帧刷新 */
-            return;
-        }
-    }
-
-    /* 解调关闭时把芯片刷回「关」（同样变化才刷） */
-    if(S.use_real) {
-        static int s_demod_shown2 = -1;
-        v32_iq_view_t ivx;
-        if(v32_get_iq(&ivx) == 0 && s_demod_shown2 != 0) {
-            if(s_chip_demod) {
-                chip_set_text(s_chip_demod, "解调 关");
-                chip_selected_c(s_chip_demod, false, V32_C_WARN);
-            }
-            s_demod_shown2 = 0;
-        }
-    }
+    scope_scale_refresh();
 
     /*
      * 深时基（窗口 > 一帧）：改从滚动缓冲取最近一段。
@@ -3656,11 +3820,16 @@ static void tick_scope(void)
         }
     }
 
+    if(s_math_mode!=5)for(int i=0;i<n;i++){ch1[i]+=s_vertical_offset[0];ch2[i]+=s_vertical_offset[1];}
     if(S.ch1) plot_set_trace(s_plot_scope, 0, ch1, n, V32_C_CH1, 2);
     else      plot_hide_trace(s_plot_scope, 0);
     if(S.ch2) plot_set_trace(s_plot_scope, 1, ch2, n, V32_C_CH2, 2);
     else      plot_hide_trace(s_plot_scope, 1);
 
+    float zero=.5f+(-s_real_lo*s_real_sc-.5f)*s_gain;
+    plot_set_voltage_reference(s_plot_scope,s_move_channel,zero,zero,false,false);
+    lv_label_set_text(lv_obj_get_child(lv_obj_get_parent(s_lbl_cur_v1),0),s_move_channel?"CH2 V1":"CH1 V1");
+    lv_label_set_text(lv_obj_get_child(lv_obj_get_parent(s_lbl_cur_v2),0),s_move_channel?"CH2 V2":"CH1 V2");
     /* 测量光标（2 竖 + 2 横） */
     {
         const float xs[2] = { s_cur_x[0], s_cur_x[1] };
@@ -3675,22 +3844,36 @@ static void tick_scope(void)
      */
     if(s_math_mode >= 1 && s_math_mode <= 4 && s_real_valid && s_full_n >= 2
        && !(S.use_real && s_zoom_span > s_full_n)) {
-        float mn = 1e30f, mx = -1e30f;
+        float mn = 1e30f, mx = -1e30f;int finite=0;
+        for(int i=0;i<s_full_n;i++)s_math[i]=scope_math_sample(s_full0[i],s_full1[i],s_math_mode);
         for(int i = 0; i < s_full_n; i++) {
+            if(!isfinite(s_math[i]))continue;
+            finite++;
             if(s_math[i] < mn) mn = s_math[i];
             if(s_math[i] > mx) mx = s_math[i];
         }
-        if(mx - mn < 1e-6f) { mn = -1.f; mx = 1.f; }
+        if(mx-mn<1e-6f){float center=(mn+mx)*.5f,pad=fmaxf(1.f,fabsf(center)*.1f);mn=center-pad;mx=center+pad;}
         map_window_own(s_math, s_full_n, s_math_y, n, mn, 1.0f / (mx - mn));
-        plot_set_trace(s_plot_scope, 2, s_math_y, n, V32_C_MATH, 2);
+        plot_set_trace(s_plot_scope, 2, s_math_y, n, V32_C_MATH, 3);
+        const char *name[]={"","A+B","A-B","A*B","A/B"};
+        double factor=s_math_mode==3?pow(V32_ADC_MV_PER_LSB*.001,2):s_math_mode==4?1:V32_ADC_MV_PER_LSB*.001;
+        lv_label_set_text_fmt(s_math_note,"M %s | %.3g..%.3g %s",name[s_math_mode],mn*factor,mx*factor,s_math_mode==3?"V^2":s_math_mode==4?"ratio":"V");
+        if(!finite){plot_hide_trace(s_plot_scope,2);lv_label_set_text(s_math_note,"M A/B | DIV ZERO / LOW DEN");}
+        lv_obj_remove_flag(s_math_note,LV_OBJ_FLAG_HIDDEN);
     } else {
         plot_hide_trace(s_plot_scope, 2);
+        if(s_math_mode>=1 && s_math_mode<=4){
+            lv_label_set_text(s_math_note,s_real_valid?"M | RAW FRAME ONLY":"M | NO RAW");
+            lv_obj_remove_flag(s_math_note,LV_OBJ_FLAG_HIDDEN);
+        }else lv_obj_add_flag(s_math_note,LV_OBJ_FLAG_HIDDEN);
     }
 
     /* scope_proto：位置 = 顶部小三角（波形被钉在 20% 处），
        电平 = 贯穿绘图区的洋红虚线，随 s_trig_lev 动 */
-    plot_set_trigger(s_plot_scope, true, 0.2f);
-    plot_set_trigger_level(s_plot_scope, true, s_trig_lev);
+    plot_set_trigger(s_plot_scope, s_trig_mode!=0, 0.2f);
+    float trigger_y=.5f;
+    if(s_real_sc>0)trigger_y=.5f+((s_trig_counts-s_real_lo)*s_real_sc-.5f)*s_gain+s_vertical_offset[0];
+    plot_set_trigger_level(s_plot_scope,s_trig_mode!=0 && isfinite(trigger_y),trigger_y);
 
     const bool use_real = S.use_real;
     const bool real = (use_real && s_real_valid);
@@ -3722,12 +3905,17 @@ static void tick_scope(void)
     const bool meas_ok     = meas_fresh && mm.usable;
 
     if(real) {
-        if(meas_ok)
+        if(fmaxf(v1,v2)<=2.f*V32_ADC_MV_PER_LSB)
+            lv_label_set_text(s_lbl_scope_freq,"—");
+        else if(meas_ok)
             lv_label_set_text_fmt(s_lbl_scope_freq, "%.4f MHz", (double)mm.tracked_hz_x1000 / 1e9);
-        else
+        else if(meas_fresh && (mm.fft_valid & (1u<<s_real_fft_ch)))
+            lv_label_set_text_fmt(s_lbl_scope_freq,"%.3f MHz",(double)(s_real_fft_ch?mm.fft_hz1:mm.fft_hz0)/1e6);
+        else if(fmaxf(v1,v2)>2.f*V32_ADC_MV_PER_LSB && s_real_peak_dbfs-s_real_floor_dbfs>=15.f)
             lv_label_set_text_fmt(s_lbl_scope_freq, "%.3f MHz", (double)s_real_peak_hz / 1e6);
+        else lv_label_set_text(s_lbl_scope_freq,"—");
     } else if(use_real) {
-        lv_label_set_text(s_lbl_scope_freq, "0.000 MHz");
+        lv_label_set_text(s_lbl_scope_freq, "—");
     } else {
         lv_label_set_text_fmt(s_lbl_scope_freq, "%.3f MHz", (double)FREQ_MHZ[S.freq_idx]);
     }
@@ -3811,9 +3999,10 @@ static void tick_scope(void)
         const float t1 = (s_cur_x[0] - 0.5f) * span_s;
         const float t2 = (s_cur_x[1] - 0.5f) * span_s;
         const float dts = fabsf(t2 - t1);
-        const float vr = (1.0f / s_real_sc) * V32_ADC_MV_PER_LSB;
-        const float v1c = (0.5f - s_cur_y[0]) * vr;
-        const float v2c = (0.5f - s_cur_y[1]) * vr;
+        const float vr = (1.0f / s_real_sc) * V32_ADC_MV_PER_LSB / s_gain;
+        const float center_mv=(s_real_lo+.5f/s_real_sc)*V32_ADC_MV_PER_LSB;
+        const float v1c = center_mv+(0.5f-s_cur_y[0]-s_vertical_offset[s_move_channel])*vr;
+        const float v2c = center_mv+(0.5f-s_cur_y[1]-s_vertical_offset[s_move_channel])*vr;
         const float dvm = fabsf(v2c - v1c);
         char b1[16], b2[16];
         fmt_time_s(b1, sizeof b1, t1);           lv_label_set_text(s_lbl_cur_t1, b1);
@@ -3841,7 +4030,9 @@ static void tick_scope(void)
      * (s_tb_manual)就绝不抢：实测「根本调不上去」的根因就是这里，
      * 用户拉到深档、几秒后第一帧频率一出就被拽回浅档。
      */
-    if(!s_tb_autodone && !s_tb_manual && s_real_peak_hz > 100.f) {
+    if(!s_tb_autodone && !s_tb_manual && s_real_peak_hz > 100.f &&
+       fmaxf(s_real_vpp0_mv,s_real_vpp1_mv)>2.f*V32_ADC_MV_PER_LSB &&
+       s_real_peak_dbfs-s_real_floor_dbfs>=15.f) {
         int d = 0; tb_default(&d);
         if(d != s_tb_idx) tb_apply(d);
         s_tb_autodone = 1;
@@ -3885,36 +4076,42 @@ static void fft_cursor_tick(void)
 {
     if(!s_fft_cur_on || !s_lbl_fft_cur) return;
 
-    const wave_source_t *src = wave_source_get();
-    const float fs = (src && src->sample_rate > 0) ? (float)src->sample_rate : 65000000.0f;
+    const float fs = s_spec_in_use?s_spec_fs_eff:s_real_fft_fs;
     const float f  = s_fft_cur_x * fs * 0.5f;
 
     float db = -200.0f;
-    if(s_real_bins > 2) {
+    int unresolved=0;
+    if(s_spec_in_use && s_spec_snapshot.got>0){
+        unsigned bin=(unsigned)(f*s_spec_snapshot.nfft/s_spec_fs_eff+.5f);
+        if(bin>=s_spec_snapshot.got)bin=s_spec_snapshot.got-1;
+        unresolved=(s_spec_snapshot.data[bin]==0);
+        db=(float)s_spec_snapshot.data[bin]*s_spec_snapshot.scale_dbfs/255.f-s_spec_snapshot.scale_dbfs;
+    }else if(s_real_bins > 2) {
         int b = (int)(s_fft_cur_x * (float)(s_real_bins - 1) + 0.5f);
         if(b < 1) b = 1;
         if(b > s_real_bins - 1) b = s_real_bins - 1;
         db = 20.0f * log10f((s_real_mag[b] + 1e-9f) / REAL_FULLSCALE_COUNTS);
     }
-    lv_label_set_text_fmt(s_lbl_fft_cur, "%.3f MHz · %.1f dBFS",
-                          (double)f / 1e6, (double)db);
+    char frequency[32];fmt_hz(frequency,sizeof frequency,f);
+    if(unresolved)lv_label_set_text_fmt(s_lbl_fft_cur,"%s · < RES",frequency);
+    else lv_label_set_text_fmt(s_lbl_fft_cur,"%s · %.1f dBFS",frequency,(double)db);
     plot_set_trigger(s_plot_fft, true, s_fft_cur_x);
 }
 
 static void tick_fft(void)
 {
-    static float y[256];
+    static float y[PLOT_MAX_PTS];
     static char  peak_txt[24];
     float px = 0.3f, py = 0.8f;
 
     real_update();
 
-    fetch_spectrum(y, 256, &px, &py);
-    plot_set_trace(s_plot_fft, 0, y, 256, V32_C_FFT, 2);
+    fetch_spectrum(y, PLOT_MAX_PTS, &px, &py);
+    plot_set_trace(s_plot_fft, 0, y, PLOT_MAX_PTS, V32_C_FFT, 2);
 
     const bool real = (S.use_real && s_real_valid);
 
-    if(real) {
+    if(real || s_spec_in_use) {
         /*
          * 画的是 FPGA 的谱还是本地算的谱，读数必须跟着走 ——
          * 混用会出现"曲线峰在这个频率、读数写另一个频率"的自相矛盾。
@@ -3925,28 +4122,34 @@ static void tick_fft(void)
                         : s_real_peak_dbfs;
         snprintf(peak_txt, sizeof(peak_txt), "▼ %.3f MHz %s", (double)pf / 1e6,
                  s_spec_in_use ? "FPGA" : (s_real_fft_ch ? "CH2" : "CH1"));
-        lv_label_set_text_fmt(s_lbl_fft_peakf, "%.3f MHz", (double)pf / 1e6);
+        char frequency[32];fmt_hz(frequency,sizeof frequency,pf);
+        lv_label_set_text(s_lbl_fft_peakf,frequency);
         lv_label_set_text_fmt(s_lbl_fft_peakl, "%.1f dBFS", (double)pdb);
-        lv_label_set_text_fmt(s_lbl_fft_floor, "%.1f dBFS", (double)s_real_floor_dbfs);
+        if(s_spec_in_use && s_spec_floor_unresolved)lv_label_set_text(s_lbl_fft_floor,"< RES");
+        else lv_label_set_text_fmt(s_lbl_fft_floor, "%.1f dBFS", (double)(s_spec_in_use?s_spec_floor_dbfs:s_real_floor_dbfs));
     } else if(S.use_real) {
         /* 没数据：读数归零，不要留着上一帧的数字 */
         snprintf(peak_txt, sizeof(peak_txt), "▼ —");
-        lv_label_set_text(s_lbl_fft_peakf, "0.000 MHz");
+        lv_label_set_text(s_lbl_fft_peakf, "—");
         lv_label_set_text(s_lbl_fft_peakl, "— dBFS");
         lv_label_set_text(s_lbl_fft_floor, "— dBFS");
     } else {
         snprintf(peak_txt, sizeof(peak_txt), "▼ %d.000 MHz", FREQ_MHZ[S.freq_idx]);
         lv_label_set_text_fmt(s_lbl_fft_peakf, "%.3f MHz", (double)FREQ_MHZ[S.freq_idx]);
         lv_label_set_text_fmt(s_lbl_fft_peakl, "%.1f dBFS", (double)demo_dbfs_from_y01(py));
-        lv_label_set_text_fmt(s_lbl_fft_floor, "%.1f dBFS", (double)demo_noise_floor_dbfs(y, 256));
+        lv_label_set_text_fmt(s_lbl_fft_floor, "%.1f dBFS", (double)demo_noise_floor_dbfs(y, PLOT_MAX_PTS));
     }
 
-    plot_set_peak(s_plot_fft, true, px, peak_txt);
+    if(s_spec_in_use && !s_spec_has_peak){lv_label_set_text(s_lbl_fft_peakf,"—");lv_label_set_text(s_lbl_fft_peakl,"< RES");}
+    plot_set_peak(s_plot_fft, !(s_spec_in_use && !s_spec_has_peak), px, peak_txt);
+    if(!s_fft_cur_on)lv_label_set_text(s_lbl_fft_cur,s_spec_in_use && s_spec_floor_unresolved?"0码谱线低于分辨率":"点击频谱读取");
 
     /*
      * 窗函数读数：画的是 FPGA 的谱就报 FPGA 实际用的窗（协议里窗函数不可远程改，
      * 只有 Hann），画本地谱才报本地选的那个 —— 两者不能混。
      */
+    if(s_chip_spec_source) chip_set_text(s_chip_spec_source,s_fft_raw_source?"RAW":"AUTO");
+    if(s_chip_win) chip_set_text(s_chip_win,WIN_NAME[s_spec_in_use?0:S.win_idx]);
     if(s_spec_in_use) {
         /* FPGA 谱固定 Hann（三窗编号 0=Hann/1=Blackman/2=FlatTop，照实显示） */
         char wb[24];
@@ -3954,19 +4157,34 @@ static void tick_fft(void)
         snprintf(wb, sizeof wb, "%s·FPGA", WIN_NAME[w3]);
         lv_label_set_text(s_lbl_fft_win, wb);
     } else {
-        lv_label_set_text(s_lbl_fft_win, WIN_NAME[S.win_idx]);
+        char wb[24];snprintf(wb,sizeof wb,"%s·RAW",WIN_NAME[S.win_idx]);
+        lv_label_set_text(s_lbl_fft_win, wb);
+    }
+    {
+        const wave_source_t *src=wave_source_get();
+        float df=s_spec_in_use?s_spec_fs_eff/s_spec_nfft:
+            (s_real_valid && s_full_n>0 && src)?s_real_fft_fs/s_full_n:0.f;
+        char value[32];fmt_hz(value,sizeof value,df);lv_label_set_text(s_lbl_fft_res,value);
     }
 
     /* 标题写明这条谱是谁算的、多少点 */
+    {
+        float nyquist=.5f*(s_spec_in_use?s_spec_fs_eff:s_real_fft_fs);
+        char left[16],right[24];
+        snprintf(left,sizeof left,"0 Hz");fmt_hz(right,sizeof right,nyquist);
+        plot_set_axis_labels(s_plot_fft,left,right);
+        plot_set_fft_nyquist(s_plot_fft,nyquist);
+    }
     if(S.use_real) {
         char tt[40];
-        if(s_spec_in_use) snprintf(tt, sizeof tt, "FFT 频谱 · FPGA %d 点%s", s_spec_nfft, s_spec_stale ? " · 陈旧" : "");
-        else              snprintf(tt, sizeof tt, "FFT 频谱 · 本地 %d 点", s_real_n);
+        if(s_spec_in_use) snprintf(tt, sizeof tt, "FFT · CH1 · FPGA %d 点%s", s_spec_nfft, s_spec_stale ? " · 陈旧" : "");
+        else              snprintf(tt, sizeof tt, "FFT · CH%d · RAW %d 点",s_real_fft_ch+1,s_full_n);
         lv_label_set_text(s_lbl_fft_title, tt);
     } else {
         lv_label_set_text(s_lbl_fft_title, "FFT 频谱 · 8192 点");
     }
 
+    tick_harmonic();
     fft_cursor_tick();      /* 手指点选的频率/幅度读数 */
 }
 
@@ -3985,6 +4203,10 @@ static void tick_lock(void)
          */
         v32_iq_view_t iv;
         const bool have_iq = (v32_get_iq(&iv) != 0) && iv.points >= 2u;
+        v32_meas_view_t mm={0};v32_ddc_view_t dd={0};
+        const bool have_meas=(v32_get_meas(&mm)!=0),ok=have_meas && mm.usable;
+        const bool have_ddc=(v32_get_ddc(&dd)!=0) && dd.frame_id!=0u;
+        lv_label_set_text(s_lock_history_title,have_iq?"I/Q · NCO":s_real_valid?"双通道波形 · CH1 / CH2":"波形 · 陈旧");
         if(have_iq) {
             float peak = 1.0f;
             for(uint32_t k = 0; k < iv.points && k < (uint32_t)V32_IQ_MAX_POINTS; k++) {
@@ -4005,8 +4227,8 @@ static void tick_lock(void)
             plot_set_trace(s_plot_lock, 1, b, nn, V32_C_CH2, 2);   /* Q */
         }
 
-        if(s_real_valid && s_full_n >= 2) {
-            if(!have_iq) {          /* 普通模式仍画原始双通道波形 */
+        if((s_real_valid && s_full_n >= 2) || have_iq || have_ddc || have_meas) {
+            if(!have_iq && s_real_valid && s_full_n>=2) { /* ordinary mode shows RAW, not demodulation history */
                 map_window(s_full0, s_full_n, a, n, false);
                 map_window(s_full1, s_full_n, b, n, false);
                 plot_set_trace(s_plot_lock, 0, a, n, V32_C_CH1, 2);
@@ -4018,12 +4240,7 @@ static void tick_lock(void)
              * usable 不成立（失锁 / 未稳定 / 超时 / 没有匹配波形帧）时一律
              * 显示「—」，并用灰色，不能拿上一帧的数凑 —— 那是最容易骗人的地方。
              */
-            v32_meas_view_t mm;
-            v32_ddc_view_t  dd;
-            const bool have_meas = (v32_get_meas(&mm) != 0);
-            const bool ok = have_meas && mm.usable;
             /* 新固件的 V32DDC3!：现行 MEAS 帧没有时，用它顶上（读数来源会标出来） */
-            const bool have_ddc = (v32_get_ddc(&dd) != 0) && dd.frame_id != 0u;
 
             if(ok) {
                 lv_label_set_text_fmt(s_lbl_lock_ref,   "%.4f MHz",
@@ -4055,23 +4272,21 @@ static void tick_lock(void)
                 const float ivpp = (imax - imin) * V32_ADC_MV_PER_LSB;
                 lv_label_set_text(s_lbl_lock_ref,   "—");
                 lv_label_set_text_fmt(s_lbl_lock_amp,   "%.1f mV", (double)ivpp);
-                lv_label_set_text_fmt(s_lbl_lock_phase, "%.2f°",   (double)ph);
+                /* A single-channel baseband angle is relative to the NCO.
+                   It is not the physical CH2-CH1 phase difference. */
+                lv_label_set_text(s_lbl_lock_phase,"—");
                 lv_obj_set_style_text_color(s_lbl_lock_ref,   V32_C_METRIC_VALUE, LV_PART_MAIN);
                 lv_obj_set_style_text_color(s_lbl_lock_amp,   V32_C_METRIC_VALUE, LV_PART_MAIN);
-                lv_obj_set_style_text_color(s_lbl_lock_phase, V32_C_GREEN,        LV_PART_MAIN);
-                plot_set_iq(s_plot_iq, ph);
-                char st[24];
-                snprintf(st, sizeof st, "● 解调·%s",
-                         (s_mod_idx >= 0 && s_mod_idx < V32_MOD_COUNT)
-                             ? MOD_NAME[s_mod_idx] : "?");
-                lv_label_set_text(s_lbl_lock_state, st);
-                lv_obj_set_style_text_color(s_lbl_lock_state, V32_C_GREEN, LV_PART_MAIN);
+                lv_obj_set_style_text_color(s_lbl_lock_phase, V32_C_NOTE, LV_PART_MAIN);
+                plot_hide_iq(s_plot_iq);
+                lv_label_set_text(s_lbl_lock_state,"I/Q · NCO");
+                lv_obj_set_style_text_color(s_lbl_lock_state, V32_C_NOTE, LV_PART_MAIN);
                 if(s_lbl_lock_raw) {
                     char rb[96];
-                    snprintf(rb, sizeof rb, "IQ fid=%u pts=%u decim=%u cfg=%u fs=%uHz",
+                    snprintf(rb, sizeof rb, "IQ fid=%u pts=%u decim=%u cfg=%u fs=%uHz NCO %.2f°",
                              (unsigned)iv.frame_id, (unsigned)iv.points,
                              (unsigned)iv.decim, (unsigned)iv.cfg_id,
-                             (iv.fs_hz && iv.decim) ? (unsigned)(iv.fs_hz / iv.decim) : 0u);
+                             (iv.fs_hz && iv.decim) ? (unsigned)(iv.fs_hz / iv.decim) : 0u,(double)ph);
                     lv_label_set_text(s_lbl_lock_raw, rb);
                     lv_obj_remove_flag(s_lbl_lock_raw, LV_OBJ_FLAG_HIDDEN);
                 }
@@ -4085,9 +4300,10 @@ static void tick_lock(void)
                                       (double)dd.ref_hz_x1000 / 1e9);
                 lv_label_set_text_fmt(s_lbl_lock_amp, "%.1f mV",
                                       (double)dd.ch1_amp_mc / 1000.0 * V32_ADC_MV_PER_LSB);
+                if(dd.ddc_flags)lv_label_set_text(s_lbl_lock_amp,"—");
                 lv_obj_set_style_text_color(s_lbl_lock_ref, V32_C_METRIC_VALUE, LV_PART_MAIN);
                 lv_obj_set_style_text_color(s_lbl_lock_amp,  V32_C_METRIC_VALUE, LV_PART_MAIN);
-                if(dd.phase_valid == 0x3u) {
+                if(dd.phase_valid == 0x3u && dd.ddc_flags==0u) {
                     lv_label_set_text_fmt(s_lbl_lock_phase, "%.2f°",
                                           (double)(dd.pdiff_millideg / 1000.0));
                     lv_obj_set_style_text_color(s_lbl_lock_phase, V32_C_GREEN, LV_PART_MAIN);
@@ -4097,9 +4313,10 @@ static void tick_lock(void)
                 } else {
                     lv_label_set_text(s_lbl_lock_phase, "—");
                     lv_obj_set_style_text_color(s_lbl_lock_phase, V32_C_WARN, LV_PART_MAIN);
-                    plot_set_iq(s_plot_iq, 0.0f);
+                    plot_hide_iq(s_plot_iq);
                     lv_label_set_text(s_lbl_lock_state,
-                                      (dd.frame_id == 0u) ? "○ DDC 未就绪"
+                                      dd.ddc_flags ? "DDC FLAGS"
+                                    : (dd.frame_id == 0u) ? "○ DDC 未就绪"
                                     : (dd.ddc_flags & 0x2u) ? "○ DDC 配置非法"
                                     : (dd.phase_valid == 0u) ? "○ 相位无效·幅度有效"
                                     : "○ 单通道相位");
@@ -4126,7 +4343,7 @@ static void tick_lock(void)
                 lv_obj_set_style_text_color(s_lbl_lock_ref,   V32_C_WARN, LV_PART_MAIN);
                 lv_obj_set_style_text_color(s_lbl_lock_amp,   V32_C_WARN, LV_PART_MAIN);
                 lv_obj_set_style_text_color(s_lbl_lock_phase, V32_C_WARN, LV_PART_MAIN);
-                plot_set_iq(s_plot_iq, 0.0f);
+                plot_hide_iq(s_plot_iq);
                 /* 把原因也说出来：失锁 / 未稳定 / 没数据。
                  * guard 相位变化超限排在 SETTLING 之前 —— 实测（FPGA 端
                  * 8 s / 39 组诊断）AM 调制下 guard_reason=8 持续、AFC 状态
@@ -4158,7 +4375,7 @@ static void tick_lock(void)
             for(int i = 0; i < n; i++) { a[i] = 0.5f; b[i] = 0.5f; }
             plot_set_trace(s_plot_lock, 0, a, n, V32_C_CH1, 2);
             plot_set_trace(s_plot_lock, 1, b, n, V32_C_CH2, 2);
-            plot_set_iq(s_plot_iq, 0.0f);
+            plot_hide_iq(s_plot_iq);
             lv_label_set_text(s_lbl_lock_ref,   "—");
             lv_label_set_text(s_lbl_lock_amp,   "—");
             lv_label_set_text(s_lbl_lock_phase, "—");
@@ -4386,11 +4603,12 @@ static void mod_axes(lv_obj_t *plot,lv_obj_t *note,double seconds,const char *so
 static void mod_set_lower_metadata(const v32_ana_view_t *av,bool good)
 {
     if(!good){lv_label_set_text(s_lbl_modana_note,"ANA | --");lv_label_set_text(s_lbl_modana_units,"");plot_set_axis_labels(s_plot_modana,"","");return;}
-    const char *title=av->kind==0u?"I/Q":"调制分析";
+    const char *title=av->kind==0u?"I/Q · 基带样点":av->mode==5u?"OOK · 包络":av->mode==3u?"2FSK · 频偏":"调制分析";
     lv_label_set_text(s_lbl_modana_title,title);
     lv_label_set_text(s_lbl_modvalue_key,av->kind==1u?"包络峰峰值":av->kind==0u?"幅度 RMS":av->kind==2u?"相对频偏":"相位");
+    lv_label_set_text(s_lbl_moddecision_key,(av->mode>=3u && av->mode<=6u)?"符号判决":"调制度");
     mod_axes(s_plot_modana,s_lbl_modana_note,(double)V32_ANA_POINTS*av->decim/V32_ADC_FS_HZ,"ANA");
-    if(av->kind==0u)plot_set_axis_labels(s_plot_modana,"I","Q");
+    if(av->kind==0u)plot_set_axis_labels(s_plot_modana,"X=I","Y=Q");
     lv_obj_set_style_text_color(s_lbl_modana_note,V32_C_METRIC_VALUE,0);
 }
 static void mod_draw_raw(int channel,const v32_ana_view_t *av,bool have_ana)
@@ -4452,6 +4670,7 @@ static void mod_carrier_metadata(const v32_ana_view_t *av,bool good)
 }
 static void mod_draw_upper(const v32_ana_view_t *av,bool have_ana,bool match)
 {
+    plot_set_legends(s_plot_modraw,NULL,NULL);
     mod_carrier_metadata(av,have_ana && match && !av->flags && av->nvalid>0);
     if(s_mod_raw_view || s_an_type==0){mod_draw_raw(s_an_ch,av,have_ana);return;}
     plot_set_envelope(s_plot_modraw,NULL,NULL,0,false);
@@ -4467,18 +4686,21 @@ static void mod_draw_upper(const v32_ana_view_t *av,bool have_ana,bool match)
     mod_axes(s_plot_modraw,s_lbl_rawnote,count/fs,"ANA history");
     lv_obj_set_style_text_color(s_lbl_rawnote,V32_C_METRIC_VALUE,0);
     if(av->kind==0u){
-        const float *qq=s_history.q+s_history.length-count;int n=count<PLOT_MAX_PTS?count:PLOT_MAX_PTS;
+        const float *qq=s_history.q+s_history.length-count;
         float peak=1;
-        for(int k=count-n;k<count;k++){if(isfinite(src[k]) && fabsf(src[k])>peak)peak=fabsf(src[k]);if(isfinite(qq[k]) && fabsf(qq[k])>peak)peak=fabsf(qq[k]);}
-        for(int k=0;k<n;k++){y[k]=.5f+src[count-n+k]/(2*peak);q[k]=.5f+qq[count-n+k]/(2*peak);}
-        plot_set_mode(s_plot_modraw,PLOT_XY);plot_set_trace(s_plot_modraw,0,y,n,V32_C_CH1,1);plot_set_trace(s_plot_modraw,1,q,n,V32_C_CH1,1);
-        lv_label_set_text(s_lbl_modraw_title,"I/Q · 分析历史");lv_label_set_text(s_lbl_modraw_units,"I/Q [DDC 码] | baseband, not decoded");
-        mod_axes(s_plot_modraw,s_lbl_rawnote,n/fs,"ANA history");plot_set_axis_labels(s_plot_modraw,"I","Q");return;
+        for(int k=0;k<count;k++){if(isfinite(src[k]) && fabsf(src[k])>peak)peak=fabsf(src[k]);if(isfinite(qq[k]) && fabsf(qq[k])>peak)peak=fabsf(qq[k]);}
+        peak*=1.15f; /* Keep constant digital levels clear of the plot border. */
+        mod_view_resample(src,count,y,PLOT_MAX_PTS,-peak,peak);
+        mod_view_resample(qq,count,q,PLOT_MAX_PTS,-peak,peak);
+        plot_set_mode(s_plot_modraw,PLOT_SCOPE);plot_set_trace(s_plot_modraw,0,y,PLOT_MAX_PTS,V32_C_CH1,1);plot_set_trace(s_plot_modraw,1,q,PLOT_MAX_PTS,V32_C_CH2,1);
+        lv_label_set_text(s_lbl_modraw_title,"I/Q · 时间历程");lv_label_set_text(s_lbl_modraw_units,av->mode==6u?"I/Q [DDC 码] | raw baseband":"I/Q [DDC 码] | baseband, not decoded");
+        plot_set_legends(s_plot_modraw,"I","Q");
+        return;
     }
     float lo,hi;if(!mod_view_range(src,count,av->kind==1u,&lo,&hi))return;
     mod_view_resample(src,count,y,PLOT_MAX_PTS,lo,hi);
     plot_set_mode(s_plot_modraw,PLOT_SCOPE);plot_hide_trace(s_plot_modraw,1);
-    if(av->kind==1u){
+    if(av->kind==1u && av->mode==1u){
         static float upper[PLOT_MAX_PTS],lower[PLOT_MAX_PTS];
         mod_view_bounds(y,upper,lower,PLOT_MAX_PTS);
         plot_hide_trace(s_plot_modraw,0);
@@ -4489,9 +4711,36 @@ static void mod_draw_upper(const v32_ana_view_t *av,bool have_ana,bool match)
         return;
     }
     plot_set_trace(s_plot_modraw,0,y,PLOT_MAX_PTS,V32_C_CH1,2);
-    lv_label_set_text(s_lbl_modraw_title,av->kind==1u?"包络 · 分析历史":"分析历史");
+    lv_label_set_text(s_lbl_modraw_title,av->mode==5u?"OOK · 包络历史":av->mode==3u?"2FSK · 频偏历史":"分析历史");
     if(av->kind==1u)lv_label_set_text_fmt(s_lbl_modraw_units,"A(t) [DDC 码] %.1f..%.1f | 0 = zero",(double)lo,(double)hi);
     else lv_label_set_text_fmt(s_lbl_modraw_units,"%s [%s] %.1f..%.1f",av->kind==2u?"df":"phase",av->kind==2u?"Hz":"deg",(double)lo,(double)hi);
+}
+
+/* A decision-directed lock can also occur at a wrong multiple of Rs.
+ * Only held-out reference checks establish PN7 consistency, not protocol sync. */
+static void bpsk_status_refresh(void)
+{
+    const char *headline="○ BPSK 等待判决", *decision="等待判决";
+    bool verified=false;
+    if(s_bpsk.locked) {
+        headline="○ BPSK 待定判决"; decision="待定判决";
+        if(s_ook_test) {
+            headline="○ PN7 比对中"; decision="PN7比对中";
+            if(s_bpsk.pn_locked && s_bpsk.pn_checks>0) {
+                if(s_bpsk.pn_errors) {
+                    headline="○ PN7 检出误码"; decision="PN7有误";
+                } else if(s_bpsk.erasures) {
+                    headline="○ PN7匹配/无效位"; decision="匹配/无效位";
+                } else {
+                    headline="● PN7 参考匹配"; decision="PN7匹配";
+                    verified=true;
+                }
+            }
+        }
+    }
+    lv_label_set_text(s_lbl_mst,headline);
+    lv_obj_set_style_text_color(s_lbl_mst,verified?V32_C_GREEN:V32_C_WARN,0);
+    lv_label_set_text(s_lbl_m5,decision);
 }
 
 static void tick_mod(void)
@@ -4499,6 +4748,9 @@ static void tick_mod(void)
     static float a[PLOT_MAX_PTS];
     const int n = PLOT_MAX_PTS;
     if(!S.running)return;
+    s_ook.sink=s_image_enabled && (s_an_type==5 || s_an_type==3)?image_receiver_symbol:NULL;
+    s_bpsk.sink=s_image_enabled && s_an_type==6?image_receiver_symbol:NULL;
+    s_ook.sink_context=s_bpsk.sink_context=&s_image;
     real_update();
 
     /* 连点合并窗口：最后一次点击 250ms 后才真正下发 */
@@ -4527,19 +4779,46 @@ static void tick_mod(void)
         if(s_an_type != 0) s_claimed_off = 0;
     }
 
-    v32_ana_view_t av;
+    v32_ana_view_t av={0};
     const bool have_ana = (v32_get_ana(&av) != 0);
     const bool match=have_ana && !s_an_send_pending && !s_an_tx_failed &&
         ana_echo_matches(&av,s_an_type,s_an_ch,s_an_rate,
                          s_an_have_target?s_an_target_fcw:av.fcw);
     v32_ana_view_t queued;
-    while(v32_pop_ana(&queued)) {
+    bool drained_ana=false;
+    /* The UART producer runs concurrently. Never wait for an empty queue:
+       on a slow target/repeated BPSK reacquisition it may never become empty,
+       starving LVGL input and rendering indefinitely. Preserve FIFO ordering;
+       overflow/frame gaps still reach the decoder's normal discontinuity path. */
+    const uint32_t ana_work_start=lv_tick_get();
+    unsigned ana_work_count=0;
+    /* ui_tick runs every 100 ms; R=4096 produces about 62 frames/s.
+       Allow a full burst plus catch-up, rather than capping throughput at 40/s. */
+    while(ana_work_count<32 &&
+          (ana_work_count==0 || lv_tick_get()-ana_work_start<20u) &&
+          v32_pop_ana(&queued)) {
+        ana_work_count++;
+        drained_ana=true;
         if(s_an_type && !s_an_send_pending && !s_an_tx_failed &&
            ana_echo_matches(&queued,s_an_type,s_an_ch,s_an_rate,
                             s_an_have_target?s_an_target_fcw:av.fcw))
+        {
             ana_history_push(&s_history,&queued);
-        else ana_history_clear(&s_history);
+            if(s_ook_on && (queued.mode==5 || queued.mode==3))binary_push(&s_ook,&queued,OOK_RATES[s_ook_rate],s_ook_test,queued.mode==3);
+            else ook_reset(&s_ook);
+            if(s_ook_on && queued.mode==6)bpsk_push(&s_bpsk,&queued,OOK_RATES[s_ook_rate],s_bpsk_invert,s_ook_test);
+            else bpsk_reset(&s_bpsk);
+        }else {ana_history_clear(&s_history);ook_reset(&s_ook);bpsk_reset(&s_bpsk);}
     }
+    /* The reader may enqueue a newer frame after get_ana above. Never feed the
+       older snapshot back after draining that newer frame (false gap/reset). */
+    if((s_an_type==5 || s_an_type==3) && s_ook_on && have_ana && match) {
+        if(!drained_ana)binary_push(&s_ook,&av,OOK_RATES[s_ook_rate],s_ook_test,av.mode==3);
+    }else ook_reset(&s_ook);
+    if(s_an_type==6 && s_ook_on && have_ana && match){
+        if(!drained_ana)bpsk_push(&s_bpsk,&av,OOK_RATES[s_ook_rate],s_bpsk_invert,s_ook_test);
+    }else bpsk_reset(&s_bpsk);
+    lv_label_set_text(s_lbl_ook_info,"");lv_label_set_text(s_lbl_ook_bits,"");lv_label_set_text(s_lbl_modbaud,"—");
 
     mod_draw_upper(&av,have_ana,match);
     mod_set_lower_metadata(&av,have_ana && match && !av.flags && av.nvalid>0);
@@ -4549,7 +4828,7 @@ static void tick_mod(void)
         /* 制式关：给开始指引；切换中：等回显 */
         lv_label_set_text(s_lbl_modhint, s_an_type
             ? "○ 切换中 · 等待 FPGA 回显匹配帧…"
-            : "制式为「关」 · 点控制条「制式」选 AM/FM/PM/QPSK… 开始分析");
+            : "制式为「关」 · 选择 AM/FM/PM/OOK/2FSK/BPSK/QPSK");
         lv_obj_remove_flag(s_lbl_modhint, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(s_lbl_mst, s_an_type ? "○ 切换中" : "○ 未开");
         lv_obj_set_style_text_color(s_lbl_mst, V32_C_WARN, LV_PART_MAIN);
@@ -4561,7 +4840,7 @@ static void tick_mod(void)
     lv_obj_add_flag(s_lbl_modhint, LV_OBJ_FLAG_HIDDEN);   /* 有数据了，藏指引 */
     /* 分析帧诊断（交付包验收：帧号/配置/类型/抽取率/新鲜度可见） */
     {
-        static const char *KN[4] = { "I/Q 星座", "包络 Q8", "相位差 Hz", "相位 deg" };
+        static const char *KN[4] = { "基带 I/Q", "包络 Q8", "相位差 Hz", "相位 deg" };
         static uint32_t last_seq = 0;
         static uint32_t acc = 0, t0ms = 0;
         if(av.seq != last_seq) {
@@ -4618,20 +4897,21 @@ static void tick_mod(void)
         lv_label_set_text(s_lbl_m5, "--");
         return;                       /* 不画不匹配的数据 */
     } else {
-        lv_label_set_text(s_lbl_mst, "● 分析有效");
+        lv_label_set_text(s_lbl_mst, (av.mode>=3u && av.mode<=6u)?"● 分析有效 · 未解码":"● 分析有效");
         lv_obj_set_style_text_color(s_lbl_mst, V32_C_GREEN, LV_PART_MAIN);
     }
 
     /* 下图：按 kind 画 */
     if(av.kind == 0u) {
-        lv_label_set_text(s_lbl_modana_units,"I/Q [DDC 码] | baseband, not decoded");
-        /* I/Q 星座轨迹（XY）：I=X，Q=Y，联合归一 */
+        lv_label_set_text(s_lbl_modana_units,"I/Q [DDC 码] | baseband, not decoded | equal axes");
+        /* Unsynchronized baseband samples, not symbol decisions or a recovered constellation. */
         float peak = 1.0f;
         for(int k = 0; k < V32_ANA_POINTS; k++) {
             if(!av.yvalid[k]) continue;
             if(fabsf(av.y[k]) > peak) peak = fabsf(av.y[k]);
             if(fabsf(av.q[k]) > peak) peak = fabsf(av.q[k]);
         }
+        peak*=1.15f;
         static float qbuf[V32_ANA_POINTS];float su=0.f;
         for(int k=0;k<V32_ANA_POINTS;k++) {
             if(!av.yvalid[k]) { a[k]=NAN;qbuf[k]=NAN;continue; }
@@ -4639,14 +4919,45 @@ static void tick_mod(void)
             a[k]=0.5f+av.y[k]/(2.f*peak);qbuf[k]=0.5f+av.q[k]/(2.f*peak);
         }
         plot_set_mode(s_plot_modana, PLOT_XY);
-        plot_set_trace(s_plot_modana, 0, a, V32_ANA_POINTS, V32_C_MATH, 2);
+        plot_set_xy_style(s_plot_modana,true,true);
+        int plotted=V32_ANA_POINTS;
+        if(av.mode==6u && s_bpsk_symbols){
+            lv_label_set_text(s_lbl_modana_title,"BPSK · Symbols");
+            lv_label_set_text(s_lbl_modana_units,"BPSK symbols | +/- phase ambiguity | equal axes");
+            plotted=s_ook_on && s_bpsk.locked?s_bpsk.sym_n:0;
+            lv_label_set_text_fmt(s_lbl_modana_note,"SYM %d",plotted);
+            float limit=1.25f;
+            for(int k=0;k<plotted;k++){int at=(s_bpsk.sym_at-plotted+k+128)%128;limit=fmaxf(limit,1.15f*fmaxf(fabsf(s_bpsk.sym_i[at]),fabsf(s_bpsk.sym_q[at])));}
+            for(int k=0;k<plotted;k++){int at=(s_bpsk.sym_at-plotted+k+128)%128;a[k]=.5f+s_bpsk.sym_i[at]/(2*limit);qbuf[k]=.5f+s_bpsk.sym_q[at]/(2*limit);}
+        }
+        if(plotted)plot_set_trace(s_plot_modana, 0, a, plotted, V32_C_MATH, 2);else plot_hide_trace(s_plot_modana,0);
         /* PLOT_XY 用 trace1 当 Y 轴 —— 拷一份进静态缓冲 */
 
-        plot_set_trace(s_plot_modana, 1, qbuf, V32_ANA_POINTS, V32_C_MATH, 2);
+        if(plotted)plot_set_trace(s_plot_modana, 1, qbuf, plotted, V32_C_MATH, 2);else plot_hide_trace(s_plot_modana,1);
 
         lv_label_set_text_fmt(s_lbl_m4, "RMS %.0f",
                               (double)sqrtf(su / (float)av.nvalid));
-        lv_label_set_text(s_lbl_m5, "--");
+        lv_label_set_text(s_lbl_m5, "未解码");
+        if(av.mode==6u){
+            lv_label_set_text_fmt(s_lbl_modbaud,"%d Bd",OOK_RATES[s_ook_rate]);
+            if(s_ook_on){
+                bpsk_status_refresh();
+                lv_label_set_text_fmt(s_lbl_ook_info,"CFO~%+.0fHz\nEVM %.3f | INV%d\nn=%llu ?=%llu",s_bpsk.cfo_hz,(double)s_bpsk.evm,s_bpsk_invert,s_bpsk.bits,s_bpsk.erasures);
+                double sps=(65000000.0/av.decim)/OOK_RATES[s_ook_rate];
+                if(sps<6 || sps>256)lv_label_set_text(s_lbl_ook_info,"Rs / R unsupported\nNeed 6..256 SPS");
+                int start=s_bpsk.recent_n>40?s_bpsk.recent_n-40:0;const char *recent=s_bpsk.recent+start;
+                char status[64];
+                if(!s_ook_test)snprintf(status,sizeof status,"PN7 OFF");
+                else if(!s_bpsk.pn_locked)snprintf(status,sizeof status,"PN7 acquiring");
+                else snprintf(status,sizeof status,"PN7 E=%llu/%llu",s_bpsk.pn_errors,s_bpsk.pn_checks);
+                lv_label_set_text_fmt(s_lbl_ook_bits,"bits (+/-):\n%.20s\n%s\n%s",recent,strlen(recent)>20?recent+20:"",status);
+                static uint32_t bpsk_log_ms;
+                if(getenv("WAVE_MEASDBG") && (uint32_t)(lv_tick_get()-bpsk_log_ms)>=1000u){
+                    bpsk_log_ms=lv_tick_get();
+                    fprintf(stderr,"[bpsk] cfg=%u fid=%u ch=%u fcw=%u R=%u baud=%d lock=%d n=%llu erasures=%llu CFO_coarse=%.3f evm=%.4f invert=%d pn_test=%d pn_locked=%d pn_errors=%llu pn_checks=%llu pn_dir=%d pn_invert=%d recent=%s\n",s_bpsk.cfg,s_bpsk.fid,s_bpsk.channel,s_bpsk.fcw,s_bpsk.decim,s_bpsk.baud,s_bpsk.locked,s_bpsk.bits,s_bpsk.erasures,s_bpsk.cfo_hz,(double)s_bpsk.evm,s_bpsk_invert,s_ook_test,s_bpsk.pn_locked,s_bpsk.pn_errors,s_bpsk.pn_checks,s_bpsk.pn_dir,s_bpsk.pn_invert,s_bpsk.recent);
+                }
+            }
+        }
     } else {
         /* 单值曲线：包络(Q8 码)/频偏(Hz)/相位(度)，画成单迹线 */
         plot_set_mode(s_plot_modana, PLOT_SCOPE);
@@ -4666,9 +4977,28 @@ static void tick_mod(void)
         if(av.kind==3u)lv_label_set_text_fmt(s_lbl_modana_units,"phase [deg] %.1f..%.1f",(double)draw_lo,(double)draw_hi);
         plot_set_trace(s_plot_modana, 0, a, V32_ANA_POINTS, V32_C_MATH, 2);
 
-        if(av.kind == 1u) {
+        if(av.mode == 5u || av.mode==3u){
+            /* Known-rate binary observations; preserve the original traces. */
+            lv_label_set_text_fmt(s_lbl_m4,av.mode==3u?"%.1f Hz":"%.1f 码",av.mode==3u?(double)fmaxf(fabsf(mn),fabsf(mx)):(double)(mx-mn));
+            lv_label_set_text(s_lbl_m5,!s_ook_on?"未解码":s_ook.locked?"同步":"等待同步");
+            lv_label_set_text_fmt(s_lbl_modbaud,"%d Bd",OOK_RATES[s_ook_rate]);
+            if(s_ook_on){
+                lv_label_set_text_fmt(s_lbl_mst,s_ook.locked?"● %s bit 同步":"○ %s 等待同步",av.mode==3u?"FSK":"OOK");
+                lv_obj_set_style_text_color(s_lbl_mst,s_ook.locked?V32_C_GREEN:V32_C_WARN,0);
+                lv_label_set_text_fmt(s_lbl_ook_info,"L/H %.1f/%.1f\nthr %.1f/%.1f\nn=%llu ?=%llu",(double)s_ook.low,(double)s_ook.high,(double)s_ook.threshold_low,(double)s_ook.threshold_high,s_ook.bits,s_ook.erasures);
+                if(s_ook.have_frame && s_ook.step<6)lv_label_set_text(s_lbl_ook_info,"Rs too high for Fs/R\nNeed >=6 samples/symbol");
+                int start=s_ook.recent_n>40?s_ook.recent_n-40:0;char recent[41];snprintf(recent,sizeof recent,"%s",s_ook.recent+start);
+                lv_label_set_text_fmt(s_lbl_ook_bits,"bits (latest):\n%.20s\n%s\n0101 %s=%llu/%llu",recent,strlen(recent)>20?recent+20:"",s_ook_test?"E":"OFF",s_ook.alternating_errors,s_ook.alternating_checks);
+                /* Diagnostic only; one line/second, no UART/config writes. */
+                static uint32_t ook_log_ms;
+                if(getenv("WAVE_MEASDBG") && (uint32_t)(lv_tick_get()-ook_log_ms)>=1000u){
+                    ook_log_ms=lv_tick_get();
+                    fprintf(stderr,"[%s] cfg=%u fid=%u ch=%u fcw=%u R=%u baud=%d lock=%d n=%llu erasures=%llu alt_test=%d errors=%llu checks=%llu low=%.3f high=%.3f thr=%.3f/%.3f recent=%s\n",av.mode==3u?"fsk":"ook",s_ook.cfg,s_ook.fid,s_ook.channel,s_ook.fcw,s_ook.decim,s_ook.baud,s_ook.locked,s_ook.bits,s_ook.erasures,s_ook_test,s_ook.alternating_errors,s_ook.alternating_checks,(double)s_ook.low,(double)s_ook.high,(double)s_ook.threshold_low,(double)s_ook.threshold_high,s_ook.recent);
+                }
+            }
+        }else if(av.kind == 1u) {
             /*
-             * AM/OOK 调制度改用**正弦拟合**，不再用极值法。
+             * AM 调制度用正弦拟合；OOK 在独立分支仅观察幅度，不套此模型。
              * 极值法 (max-min)/(max+min) 在低幅度下把噪声当调制深度：
              * 实测真值 0% 被算成 9.54%、25%→30.96%、50%→55.77%、75%→79.64%，
              * 幅度减半时 50% 变成 63.48%。拟合值分别是 0.26/25.16/49.91/75.00/50.12%。
@@ -4774,7 +5104,7 @@ static void tick_mod(void)
             if(pk >= 1000.f) snprintf(b, sizeof b, "%.2f kHz", (double)pk / 1e3);
             else             snprintf(b, sizeof b, "%.1f Hz",  (double)pk);
             lv_label_set_text(s_lbl_m4, b);
-            lv_label_set_text(s_lbl_m5, "--");
+            lv_label_set_text(s_lbl_m5, av.mode==3u?"未解码":"--");
         } else {
             /* PM：相位峰偏 */
             snprintf(b, sizeof b, "%.1f°", (double)(mx > -mn ? mx : -mn));
@@ -4786,6 +5116,10 @@ static void tick_mod(void)
 
 static void tick_system(void)
 {
+    if(s_system_frame_info){
+        v32_spec_view_t spec={0};v32_get_spec(&spec);
+        lv_label_set_text_fmt(s_system_frame_info,"RAW %d / FFT %u",s_full_n,(unsigned)spec.nfft);
+    }
     const uint32_t now = lv_tick_get();
 
     /* Render FPS：直接拿 DRM 后端真实的翻页计数算，1 秒更新一次 */
@@ -4862,7 +5196,6 @@ void ui_create(void)
         S.fft_ch = e ? atoi(e) : 0;
         if(S.fft_ch < 0 || S.fft_ch > 2) S.fft_ch = 0;
     }
-    S.tau_idx = TAU_DEF;
     S.phase = 43.7f;
     S.fullscreen = false;
 
@@ -4923,6 +5256,7 @@ void ui_create(void)
     build_ai    (s_page[UI_PAGE_AI]);
     if(getenv("WAVE_TDBG")) fprintf(stderr, "[build] mod\n");
     build_mod   (s_page[UI_PAGE_MOD]);
+    image_receiver_clear(&s_image);build_image(s_page[UI_PAGE_IMAGE]);image_refresh();
     if(getenv("WAVE_TDBG")) fprintf(stderr, "[build] system\n");
     build_system(s_page[UI_PAGE_SYSTEM]);
 
@@ -4961,6 +5295,7 @@ void ui_set_page(int page)
         nav_selected(s_nav[i], i == page);
     }
     ctrl_set_page(page);
+    auto_chip_refresh();
 
     if(page == UI_PAGE_AI) s_ai_autoframed = false;   /* 进页先允许一次自动框窗 */
 
@@ -4979,6 +5314,7 @@ int ui_page_from_name(const char *name)
     /* 插入 UI_PAGE_MOD 之后，"4" 已经变成调制页，不能再当 system 用 */
     if(!strcmp(name, "mod")   || !strcmp(name, "modem") || !strcmp(name, "4")) return UI_PAGE_MOD;
     if(!strcmp(name, "system")|| !strcmp(name, "sys") || !strcmp(name, "5")) return UI_PAGE_SYSTEM;
+    if(!strcmp(name,"image") || !strcmp(name,"img") || !strcmp(name,"6"))return UI_PAGE_IMAGE;
     return -1;
 }
 
@@ -4987,6 +5323,9 @@ void ui_set_view(int view) { ui_set_page(view ? UI_PAGE_FFT : UI_PAGE_SCOPE); }
 
 void ui_tick(void)
 {
+    /* Dialogs cover the page. Keep accepting real samples without repainting
+       the hidden plot and its translucent overlay on every 33ms tick. */
+    if(s_help_overlay || s_hrm_dialog){real_update();return;}
     if(S.running) {
         S.sig.t += 0.02f;
         if(S.sig.t > 1000.f) S.sig.t = 0.f;
@@ -5003,10 +5342,18 @@ void ui_tick(void)
         case UI_PAGE_FFT:    tick_fft();    break;
         case UI_PAGE_LOCK:   tick_lock();   break;
         case UI_PAGE_AI:     tick_ai();     break;
-        case UI_PAGE_MOD:    tick_mod();    break;
+        case UI_PAGE_MOD:
+            tick_mod();
+            if(s_an_retune_error) {
+                lv_label_set_text(s_lbl_mst,"○ 频率无效");
+                lv_obj_set_style_text_color(s_lbl_mst,V32_C_WARN,0);
+            }
+            break;
         case UI_PAGE_SYSTEM: tick_system(); break;
+        case UI_PAGE_IMAGE: tick_mod();image_refresh();break;
         default: break;
     }
+    scope_acquisition_status();
     tick_clock();
 }
 

@@ -92,8 +92,8 @@ static float win_coef(fft_win_t win, int i, int n)
     case FFT_WIN_BLACKMAN:                       /* SciPy blackman: a=[0.42,0.50,0.08] */
         return 0.42f - 0.5f * cosf(z) + 0.08f * cosf(2.0f * z);
     case FFT_WIN_FLATTOP: {                      /* SciPy flattop 五项 */
-        static const float a[5] = { 0.21557895f, 0.41663158f, 0.277263158f,
-                                    0.083578947f, 0.006947368f };
+        static const float a[5] = { 0.21557895f, -0.41663158f, 0.277263158f,
+                                    -0.083578947f, 0.006947368f };
         float w = 0.0f;
         for (int k = 0; k < 5; k++) w += a[k] * cosf((float)k * z);
         return w;
@@ -127,8 +127,11 @@ void fft_magnitude_spectrum_zero_win(const float *x, int n_real, int n_fft,
     if (n_fft > FFT_MAX_N || (n_fft & (n_fft - 1))) return;
 
     /* 窗加在**真实样点**上，补零的部分不加窗（本来就是 0） */
+    double window_sum = 0.0;
     for (int i = 0; i < n_real; i++) {
-        s_re[i] = x[i] * win_coef(win, i, n_real);
+        const float w = win_coef(win, i, n_real);
+        window_sum += w;
+        s_re[i] = x[i] * w;
         s_im[i] = 0.0f;
     }
     for (int i = n_real; i < n_fft; i++) {
@@ -140,12 +143,13 @@ void fft_magnitude_spectrum_zero_win(const float *x, int n_real, int n_fft,
 
     /* 归一化按 n_real 算，不是 n_fft —— 补零不改变信号能量。
      * 与 fft_magnitude_spectrum() 同口径：单频 A*sin() 峰值读出来约等于 A。 */
-    const float scale = 4.0f / (float)n_real;
+    /* Coherent gain depends on the selected window, not a fixed Hann gain. */
+    const float scale = window_sum > 0.0 ? (float)(2.0 / window_sum) : 0.0f;
     const int   half  = n_fft >> 1;
 
     for (int k = 0; k < half; k++) {
         const float m = sqrtf(s_re[k] * s_re[k] + s_im[k] * s_im[k]);
-        mag[k] = m * scale;
+        mag[k] = m * scale * (k == 0 ? 0.5f : 1.0f);
     }
 }
 
@@ -177,4 +181,21 @@ void fft_magnitude_spectrum(const float *x, int n, float *mag)
 void fft_magnitude_spectrum_zero(const float *x, int n_real, int n_fft, float *mag)
 {
     fft_magnitude_spectrum_zero_win(x, n_real, n_fft, FFT_WIN_HANN, mag);
+}
+
+/* Center estimation is always based on Hann, never a FlatTop plateau maximum. */
+float fft_hann_peak_bin(const float *mag, int bins)
+{
+    if(!mag || bins<3)return 0.f;
+    int peak=0;float maximum=0.f;
+    for(int k=1;k<bins;k++)if(isfinite(mag[k]) && mag[k]>maximum){maximum=mag[k];peak=k;}
+    if(!peak)return 0.f;
+    if(peak==1 || peak==bins-1 || mag[peak-1]<=0.f || mag[peak+1]<=0.f)return (float)peak;
+    const float left=logf(mag[peak-1]),middle=logf(maximum),right=logf(mag[peak+1]);
+    const float curvature=left-2.f*middle+right;
+    if(!isfinite(curvature) || curvature>=-1e-9f)return (float)peak;
+    float offset=.5f*(left-right)/curvature;
+    if(!isfinite(offset))return (float)peak;
+    offset=fmaxf(-.5f,fminf(.5f,offset));
+    return peak+offset;
 }

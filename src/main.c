@@ -38,10 +38,9 @@
 #include <linux/input.h>
 
 /*
- * 数据刷新周期。原来 100 ms —— 界面被锁在 10 Hz，就算数据到了 22 帧/秒
- * 屏幕也只画 10 次。FPGA 改送 1024 点之后一帧只要 44.9 ms（22 帧/秒），
- * 所以这里放到 45 ms 跟上去。
- * 如果将来发现 CPU 跟不上（ui_tick 单次耗时 > 45 ms），会自动被主循环节流，
+ * 界面调度周期。旧100ms把显示限制在10Hz；33ms允许及时展示新到帧，
+ * 不改变ADC采样率或UART实际到帧率。到帧数与DRM翻页数分别统计。
+ * 如果CPU跟不上，会自动被主循环节流，
  * 不会卡死 —— 只是帧率降下来。
  */
 /*
@@ -49,11 +48,12 @@
  * 线程后 CPU 撑不住（实测调制分析开着就卡）。100ms = 10fps，
  * 与数据帧率同量级，渲染负载直接减半，肉眼看不出差别。
  */
-#define REFRESH_MS      100     /* 数据刷新周期 */
+#define REFRESH_MS      33      /* UI scheduling; acquisition rate remains measured separately. */
 #define AUTOSWITCH_MS   8000    /* 无触摸时的自动轮播周期 */
 
 static volatile sig_atomic_t s_quit = 0;
 static volatile sig_atomic_t s_snap_req = 0;
+static volatile sig_atomic_t s_dump_req = 0;
 static const char *s_snap_path = NULL;      /* SIGUSR1 截图目标 */
 
 static void on_signal(int sig)
@@ -67,6 +67,7 @@ static void on_sigusr1(int sig)
     (void)sig;
     s_snap_req = 1;
 }
+static void on_sigusr2(int sig){(void)sig;s_dump_req=1;}
 
 static void do_snapshot(const char *path)
 {
@@ -325,7 +326,7 @@ static int run_selftest(void)
  *
  * 「帧率」其实是两个不同的数，所以分两段测：
  *
- *   阶段 1「实际运行」—— 就是正常跑的样子：数据 100ms(REFRESH_MS) 刷一次，
+ *   阶段 1「实际运行」—— 就是正常跑的样子：UI每REFRESH_MS调度一次，
  *                        LVGL 显示定时器 33ms 一次，只在画面真的变了才翻页。
  *                        量出来的才是你眼睛看到的刷新节奏。
  *
@@ -346,6 +347,7 @@ static int run_fps_probe(int sec)
     drm_display_flip_stats(&f0, &n0);
     const uint32_t t0 = tick_cb();
     uint32_t last_data = t0;
+    const uint32_t raw0=v32_get_stats()->frames_ok;
 
     while (tick_cb() - t0 < ms) {
         lv_timer_handler();
@@ -360,6 +362,7 @@ static int run_fps_probe(int sec)
 
     drm_display_flip_stats(&f1, &n1);
     const uint32_t t1 = tick_cb();
+    const uint32_t raw1=v32_get_stats()->frames_ok;
 
     /* ---------------- 阶段 2：强制每轮重绘 ---------------- */
     /*
@@ -371,6 +374,7 @@ static int run_fps_probe(int sec)
     uint32_t iters   = 0;
     while (tick_cb() - t1 < ms) {
         ui_tick();                      /* 换一帧数据，同时让 chart 失效 */
+        lv_obj_invalidate(lv_screen_active()); /* Explicit full redraw, even if setters detect unchanged data. */
         const uint64_t r0 = mono_ns();
         lv_refr_now(NULL);              /* 立刻渲染 + 翻页，不等 33ms 显示定时器 */
         refr_ns += mono_ns() - r0;
@@ -379,6 +383,7 @@ static int run_fps_probe(int sec)
 
     drm_display_flip_stats(&f2, &n2);
     const uint32_t t2 = tick_cb();
+    const uint32_t raw2=v32_get_stats()->frames_ok;
 
     const uint32_t d1 = f1 - f0, e1 = t1 - t0;
     const uint32_t d2 = f2 - f1, e2 = t2 - t1;
@@ -399,6 +404,8 @@ static int run_fps_probe(int sec)
     printf("面板模式       : %dx%d @%dHz   硬件上限 %d fps\n", W, H, HZ, HZ);
 
     printf("1) 实际运行    : %6.1f fps   (%u 帧 / %u ms)\n", fps_run, d1, e1);
+    printf("RAW CRC-good arrival: normal %.2f frames/s, forced %.2f frames/s (not display FPS)\n",
+           e1?(raw1-raw0)*1000.0/e1:0.,e2?(raw2-raw1)*1000.0/e2:0.);
     printf("                  ↑ 数据每 %d ms 刷一次、画面变了才翻页，这是肉眼看到的节奏\n",
            REFRESH_MS);
 
@@ -651,6 +658,7 @@ int main(int argc, char **argv)
     signal(SIGINT,  on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGUSR1, on_sigusr1);        /* kill -USR1 <pid> 即截图 */
+    signal(SIGUSR2, on_sigusr2);        /* Queue a layout dump on the UI thread. */
 
     uint32_t last_data = tick_cb();
     uint32_t last_sw   = last_data;
@@ -672,6 +680,7 @@ int main(int argc, char **argv)
         }
 
         /* 运行中收到 SIGUSR1 -> 立刻截图 */
+        if(s_dump_req){s_dump_req=0;lv_obj_update_layout(lv_screen_active());ui_dump_layout();fflush(stdout);}
         if (s_snap_req) {
             s_snap_req = 0;
             do_snapshot(s_snap_path ? s_snap_path : "/tmp/wave_frame.ppm");
@@ -686,6 +695,9 @@ int main(int argc, char **argv)
         usleep(3000);
     }
 
+    /* Drain an optional diagnostic capture and join the existing UART reader. */
+    const wave_source_t *finished_source=wave_source_get();
+    if(finished_source && finished_source->deinit)finished_source->deinit();
     printf("\n[app] exit\n");
     return 0;
 }

@@ -29,6 +29,9 @@
  * 绘图区宽约 740 px，1024 点足够做到「每像素至少一个点」；
  * 演示源只发 512 点、V32CAP3 一帧 4096 点会先被压到 1024。 */
 #define PLOT_MAX_PTS   1024
+
+/* Optional true-bin horizontal positions for an FFT trace, normalized 0..1. */
+void plot_set_fft_positions(lv_obj_t *plot,const float *positions,int n);
 /* 一个波形区最多几条曲线（参考稿里 SCOPE/LOCK-IN 是两条，其余一条） */
 #define PLOT_MAX_TRACE 3   /* 2 路 + 1 条 Math */
 
@@ -79,8 +82,12 @@ void plot_set_peak(lv_obj_t *plot, bool vis, float x, const char *txt);
 
 /* ---- IQ 专用：矢量角度（数学约定，0°=+I 向右，逆时针为正）---- */
 void plot_set_iq(lv_obj_t *plot, float phase_deg);
+void plot_hide_iq(lv_obj_t *plot);
+bool plot_get_data_area(lv_obj_t *plot,lv_area_t *area);
+void plot_set_voltage_reference(lv_obj_t *plot,int channel,float zero0,float zero1,bool show0,bool show1);
 
 /* ---- 画布内的角落文字（参考稿 FFT 页的 "0 MHz" / "32.5 MHz"）---- */
+void plot_set_fft_nyquist(lv_obj_t *plot,float hz);
 void plot_set_axis_labels(lv_obj_t *plot, const char *left, const char *right);
 
 /* ---- SCOPE 专用：AM 上下包络叠加（金色虚线, 照原型 AM 视图）----
@@ -90,6 +97,8 @@ void plot_set_envelope(lv_obj_t *plot, const float *up, const float *dn,
                        int n, bool show);
 /* Optional amplitude-region shading, not sampled carrier data. Off by default. */
 void plot_set_envelope_fill(lv_obj_t *plot, bool show);
+/* For baseband sample distributions: actual samples, optional equal pixel scales. */
+void plot_set_xy_style(lv_obj_t *plot, bool points, bool equal_axes);
 
 /* 测量光标：n<=4，xs 是竖线的相对位置 0..1，ys 是横线的相对位置 0..1。
  * 示波器页用 2 竖 + 2 横（时间光标 + 电压光标）。 */

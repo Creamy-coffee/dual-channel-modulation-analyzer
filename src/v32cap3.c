@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include "raw_capture.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,6 +78,32 @@ static uint32_t mono_ms(void)
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u);
+}
+
+static v32_harmonic_view_t s_harmonic;
+static uint32_t s_harmonic_ms;
+static void handle_harmonic(const uint8_t *p)
+{
+    v32_harmonic_measurement m;
+    if(!v32_harmonic_decode(p,V32_HARMONIC_BYTES,&m))return;
+    pthread_mutex_lock(&s_lock);
+    /* Duplicate results cannot keep an old value alive. cfg is independent of ANA. */
+    if(!s_harmonic.seq || m.result_id!=s_harmonic.m.result_id || m.cfg_id!=s_harmonic.m.cfg_id){
+        s_harmonic.m=m;s_harmonic.seq++;s_harmonic_ms=mono_ms();
+    }
+    pthread_mutex_unlock(&s_lock);
+}
+int v32_get_harmonic(v32_harmonic_view_t *out)
+{
+    if(!out)return 0;
+    pthread_mutex_lock(&s_lock);
+    *out=s_harmonic;
+    uint64_t age=(uint32_t)(mono_ms()-s_harmonic_ms);
+    if(out->m.adc_fs)age+=(uint64_t)out->m.age_ticks*1000u/out->m.adc_fs;
+    out->age_ms=age>UINT32_MAX?UINT32_MAX:(uint32_t)age;
+    out->valid=out->seq && age<=1500u;
+    pthread_mutex_unlock(&s_lock);
+    return out->seq!=0;
 }
 
 /* FCW -> 毫 Hz（带符号，用于残余频差） */
@@ -603,6 +630,7 @@ static void v32_feed(const uint8_t *data, int n)
             if (memcmp(s_buf + i, s_magic_iq, V32_MAGIC_LEN) == 0)   { at = i; is_meas = 3; break; }
             if (memcmp(s_buf + i, s_magic_ddc, V32_MAGIC_LEN) == 0)  { at = i; is_meas = 4; break; }
             if (memcmp(s_buf + i, s_magic_ana, V32_MAGIC_LEN) == 0)  { at = i; is_meas = 5; break; }
+            if (memcmp(s_buf + i, "V32HRM1!", V32_MAGIC_LEN) == 0) { at=i;is_meas=6;break; }
         }
         if (at < 0) {
             /* 保留可能是「被拆开的魔数前缀」的尾巴，其余丢弃 */
@@ -620,6 +648,17 @@ static void v32_feed(const uint8_t *data, int n)
             s_st.discarded_bytes += (uint32_t)at;
         }
 
+        if(is_meas==6){
+            if(s_len<(int)V32_HARMONIC_BYTES)break;
+            v32_harmonic_measurement checked;
+            if(!v32_harmonic_decode(s_buf,V32_HARMONIC_BYTES,&checked)){
+                s_st.header_errors++;s_st.discarded_bytes++;
+                memmove(s_buf,s_buf+1,(size_t)--s_len);continue;
+            }
+            handle_harmonic(s_buf);
+            memmove(s_buf,s_buf+V32_HARMONIC_BYTES,(size_t)(s_len-V32_HARMONIC_BYTES));
+            s_len-=V32_HARMONIC_BYTES;continue;
+        }
         if (is_meas == 2) {                              /* V32SPEC! 频谱帧 */
             if (s_len < V32_SPEC_HDR + 4) break;
             const int len = (int)rd32(s_buf + 12);
@@ -829,12 +868,20 @@ static void v32_feed(const uint8_t *data, int n)
 static void *reader_main(void *arg)
 {
     uint8_t tmp[V32_RXBUF / 2];   /* 一次读不超过缓冲一半，绝不会被截断 */
+    raw_capture_t capture={0};
+    const char *capture_path=getenv("WAVE_RAW_CAPTURE");
+    if(capture_path && *capture_path) {
+        int started=raw_capture_start(&capture,capture_path,8u*1024u*1024u);
+        if(started<0)fprintf(stderr,"[rawcap] start failed errno=%d; UART continues without capture\n",errno);
+        else fprintf(stderr,"[rawcap] started %s max=8388608 queue=1048576\n",capture_path);
+    }
     (void)arg;
     if(getenv("WAVE_MEASDBG")) fprintf(stderr, "[rx] 读线程已启动 fd=%d\n", s_fd);
 
     while (!s_stop) {
         const ssize_t n = read(s_fd, tmp, sizeof tmp);
         if (n > 0) {
+            raw_capture_feed(&capture,tmp,(size_t)n);
             v32_feed(tmp, (int)n);
             /* 每 2 秒打一次接收统计：帧死在哪一步（头/CRC/序列/样点）一眼看到，
                不用再靠猜。WAVE_MEASDBG=1 时输出。 */
@@ -850,11 +897,14 @@ static void *reader_main(void *arg)
                         last = now;
                         /* dec=帧头抽取率、fn=每帧点数：判断 FPGA 送的是不是深抽取帧
                            （dec≥1024 时一帧跨 ≥64ms，AM 包络才能帧内直见）。 */
-                        const wave_source_t *ws = wave_source_get();
+                        int frame_points,frame_dec;
+                        pthread_mutex_lock(&s_lock);
+                        frame_points=s_latest.n;
+                        frame_dec=(int)s_latest.decimation;
+                        pthread_mutex_unlock(&s_lock);
                         fprintf(stderr, "[rx] 帧=%u fps=%.1f dec=%d fn=%d 头错=%u CRC错=%u 序列错=%u 样点错=%u EAGAIN=%u 丢弃字节=%u 尾巴=%u\n",
                                 s_st.frames_ok, s_st.fps_milli / 1000.0,
-                                v32_last_decimation(),
-                                (ws && ws->frame_len > 0) ? ws->frame_len : 0,
+                                frame_dec,frame_points,
                                 s_st.header_errors, s_st.crc_errors,
                                 s_st.sequence_errors, s_st.sample_errors,
                                 s_st.eagain_cnt, s_st.discarded_bytes,
@@ -875,6 +925,7 @@ static void *reader_main(void *arg)
             usleep(20000);
         }
     }
+    raw_capture_finish(&capture);
     return NULL;
 }
 
@@ -1180,6 +1231,16 @@ int v32_cmd_fcw(uint32_t fcw)
                             (uint8_t)((fcw >> 8) & 0xFF) };
     if(send_raw(hi, 4) != 0) return -1;
     return send_raw(lo, 4);
+}
+
+int v32_cmd_harmonic(int enable,int channel,uint32_t fcw)
+{
+    if((enable!=0 && enable!=1) || channel<0 || channel>1 || !fcw || fcw>=0x80000000u)return -1;
+    if(!enable){const uint8_t off[]={0xa5,0xf3,0};return send_raw(off,sizeof off);}
+    const uint8_t c[]={0xa5,0xf3,0,0xa5,0xf0,(uint8_t)channel,
+        0xa5,0xf1,(uint8_t)(fcw>>16),(uint8_t)(fcw>>24),
+        0xa5,0xf2,(uint8_t)fcw,(uint8_t)(fcw>>8),0xa5,0xf3,1};
+    return send_raw(c,sizeof c);
 }
 
 int v32_cmd_apply(int mode,int channel,int rate,uint32_t fcw,int focus)

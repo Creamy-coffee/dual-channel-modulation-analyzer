@@ -22,11 +22,11 @@
 | ▥ 频谱 | FPGA SPEC 帧（4096 点共享 FFT，固定 Hann 窗）+ 屏端 RAW 1024 点谱（Hann / Blackman / FlatTop 可切）；中心频率、峰值电平、底噪、Δf、H1–H5 与 THD 2–5 |
 | ◎ 锁相 | 片上锁相：I/Q 相位矢量与双通道波形同屏；参考频率、幅度、相位差、锁定状态 |
 | ✧ 重建 | 原始样点 vs 带限插值重建，同一时间窗上下对齐；按波形类型决定是否重建 |
-| ⚙ 调制 | DDC + 包络 / 频偏 / 星座：AM 调制度、2FSK 频偏与符号同步、OOK 位同步、BPSK 观测量 |
+| ⚙ 调制 | DDC + 包络 / 频偏 / I-Q：AM 调制度、OOK 与 2FSK 的 bit 判决、BPSK 符号跟踪与 I/Q 观测、QPSK 仅 I/Q 观测 |
 | ▤ 系统 | 渲染帧率、链路吞吐、丢包与 CRC 统计等板载实测值 |
-| ▦ 图片 | 图像包流演示：OOK 曼彻斯特编码 256×128 包流，逐包校验后按行还原 |
+| ▦ 图片 | V32IMG1! 载荷：OOK / 2FSK / BPSK 解出的符号 → 曼彻斯特解码 → 分包 CRC32 → 整图 CRC32，全部通过才显示画面 |
 
-> 「图片」页在发布版程序中存在（分支 `fpga-modulation-ui-20261026`），`main` 的 `src/` 目前是六页版本；两边的差异与提交号记在 [docs/VERSION.md](docs/VERSION.md)。页面与源码的对应关系以该文件为准。
+> 七页屏端程序源码就在本仓库 `src/`。构建额外依赖 `third_party/liquid-dsp-1.7.0.tar.gz`（BPSK 符号跟踪用），配置时校验 SHA 后离线解包，不联网取依赖。版本、bit 哈希与提交号的对应见 [docs/VERSION.md](docs/VERSION.md)。
 
 ## FPGA 侧
 
@@ -59,14 +59,20 @@
 
 屏端对调制信号的呈现能力不同，分开列清楚，避免把波形显示当成协议解码：
 
-| 制式 | 屏端显示 | 符号/bit 判决 | 实机验证 |
+| 制式 | 屏端显示 | 符号 / bit 判决 | 实机验证 |
 |---|---|---|---|
 | AM | 包络 + 调制度（正弦拟合） | 不适用（模拟调制） | 2 MHz 载波、1 kHz 调制、深度 50 % → 屏上 50.0 % |
 | FM / PM | 相位差换算频偏 / 相位 | 不适用（模拟调制） | 未单独做实机记录 |
-| OOK | 包络（Q8 模长） | ● bit 同步（门限 L/H 0.3 / 18.0），输出 bits 序列 | 1 MHz 载波、1000 Bd、曼彻斯特、256×128 图像包流 |
-| 2FSK | 相位差换算频偏 | ● bit 同步（门限 L/H −1390.7 / 684.2 Hz） | 1 MHz 载波、1000 Bd、相对频偏 1525.0 Hz |
-| BPSK | 原始 I/Q 轨迹（**未做载波恢复**） | ○ 待判决 | EVM 0.060、CFO +132 Hz，判决状态「待判决」 |
-| QPSK | — | 未在屏端实现（仅历史 PC 侧做过恢复试验，不等于屏端已实现） | 无屏端记录 |
+| OOK | 包络（Q8 模长） | ● 已实现：10/90 分位学高低电平，40 %／60 % 滞回定边沿，符号中心积分判 1/0；不确定记 `?`，不强制猜 bit | 1 MHz 载波、1000 Bd、曼彻斯特、256×128 图像包流 |
+| 2FSK | 相位差换算频偏 | ● 已实现：与 OOK 共用定时与滞回核心，低频 = 0、高频 = 1（频偏正负本身不能判 bit） | 1 MHz 载波、1000 Bd、相对频偏 1525.0 Hz |
+| BPSK | 原始 I/Q 轨迹；可选恢复符号点（`SYM` / `RAW IQ` 切换，未获资格时清图，不拿原始散点冒充星座） | ● 已实现：Hann 窗 M 次方 4096 点 FFT 估粗 CFO → `msresamp` 重采样到 4Rs → `symtrack` 做 AGC / 符号定时 / 载波跟踪 / 均衡 → 判决；可选 PN7 参考检查 | 实机帧 EVM 0.060、CFO +132 Hz、状态「待判决」；离线合成基带用例（两种相位极性 + 80 Hz 载波偏差）通过 |
+| QPSK | 仅 I/Q 观测 | ○ 未实现：屏端只暴露 I/Q 观测，主机侧符号恢复未移植过来 | 无屏端记录 |
+
+三点必须说明，否则容易把上面的「已实现」读过头：
+
+1. **判决都在已知符号率下进行**：屏上人工选 100 / 250 / 500 / 1000 / 2000 Bd，没有自动制式识别，也没有自动码率估计。
+2. **`?` 是不确定，不是 0 或 1**：弱信噪比、缺帧、无效样点都记为 `?`。含 `?` 的记录不能当完整连续码流，也不能用来算 BER。
+3. **EVM 是获取资格判据，不是通信标准 EVM 仪表**：它只用来判断「这 64 个符号够不够格报同步」，没有按任何标准校准。PN7 检查也不是 BER，需要源端确实发 PN7 才有意义。
 
 ## 性能与速率
 
@@ -98,7 +104,9 @@ SPEC 频谱帧（2096 B）、MEAS 测量帧（128 B）、ANA 调制帧（1076 B�
 | `07-lock.png` / `08-lock-open.png` | CH1/CH2 同接 2 MHz 正弦，发生器相位差 45° | −45.15°、锁定；关掉一路后数值转「—」、状态「相位变化超限」 | 相位差测量与失效提示有效；**不含**绝对相位标定 |
 | `09-mod-am.png` | 2 MHz 载波、1 kHz 调制、深度 50 % | 调制度 50.0 %，包络峰峰 12 码 | 调制度估计（正弦拟合）在指定条件下成立 |
 | `10-mod-2fsk.png` / `12-mod-ook.png` | 1 MHz 载波、1000 Bd | 2FSK 频偏 1525.0 Hz、bit 同步；OOK bit 同步、bits 序列 | 指定码率下的符号同步；**未做**全码率 / 全信噪比统计 |
-| `11-mod-bpsk.png` | 1 MHz 载波、1000 Bd | EVM 0.060、CFO +132 Hz，判决「待判决」 | 观测量可用；**判决能力尚未完成** |
+| `11-mod-bpsk.png` | 1 MHz 载波、1000 Bd，人工指定 Rs | EVM 0.060、CFO +132 Hz，状态「待判决」 | 观测量与获取资格判据有效；该次运行**未获符号同步**，不能当作判决成功 |
+| [bpsk-bit-decoder-20261026.md](docs/bpsk-bit-decoder-20261026.md) 的离线用例 | 合成基带，两种相位极性、80 Hz 载波偏差 | 符号恢复与 PN7 检查通过 | 解码链路在本机软件成立；**合成基带不等于发生器→ADC→屏幕实机链路** |
+| [image-receiver-20261027.md](docs/image-receiver-20261027.md) 本机软件验证 | OOK / 2FSK / BPSK 生产 DSP → 曼彻斯特 → 包 CRC → 图块 → 整图 CRC | 全链通过 | 协议与解码链正确；**尚无语发器→ADC→屏幕的整机图片传输记录** |
 | `fpga/tests/` RTL 仿真 | tb_adc_parallel、local_afc_2ch、meas_bw_ctrl、fft_frame_4ch 等 | Vivado 时序波形 | 数字逻辑功能正确性；**不含**模拟前端与板级噪声 |
 | `fpga/build_evidence/*.rpt` | 实现 `a222905e` | 20294 LUT / 80 DSP / WNS +0.172 ns | 该次实现的资源与时序；换代码或换工具版本需重测 |
 
@@ -115,6 +123,7 @@ CLEAN=1 ./build.sh    # 全量重编
 ```
 
 `build.sh` 用 `toolchain.cmake` 交叉编译，LVGL 目录可用 `LVGL_DIR=` 覆盖（默认 `../lvgl-release-v9.1`）。
+BPSK 解码链另需 `third_party/liquid-dsp-1.7.0.tar.gz`：`third_party/liquid.cmake` 在配置阶段校验 SHA256 后离线解包并静态链接，不从网络取依赖。除 GUI 外还会构建 `bpsk_capture_decode`、`test_bpsk_decoder`、`test_raw_capture` 三个命令行工具（离线回放与自测用）。
 
 **部署到板子**
 
@@ -150,7 +159,8 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 
 **待完成**
 
-- QPSK 屏端判决；BPSK 判决（当前仅到观测量）。
+- QPSK 屏端符号恢复（当前只观测 I/Q，不输出 bit；不能由 BPSK 的进展推及 QPSK）。
+- BPSK 在实机上留下一帧「已获资格」的判决记录（现有实机帧为 EVM 0.060 / 待判决）。
 - 「图片」页真实载波下的完整接收核对。
 - 七页版本的绘制帧率复测（现有 9.9 FPS 是六页版本数据）。
 - 干净环境下的完整重建验收（含 bit 逐字节一致性）。
@@ -175,6 +185,10 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发记录：无 framebuffer 怎么点屏、触摸与协议细节、参数调整、排错工具 |
 | [fpga/README.md](fpga/README.md) | FPGA 工程结构、构建方法、接口与边界 |
 | [docs/V32CAP3_FPGA_TX_SPEC.md](docs/V32CAP3_FPGA_TX_SPEC.md) | 上位机协议与帧格式 |
+| [docs/ook-bit-decoder-20261026.md](docs/ook-bit-decoder-20261026.md) / [fsk](docs/fsk-bit-decoder-20261026.md) / [bpsk](docs/bpsk-bit-decoder-20261026.md) | 三种制式的判决算法、参数、适用条件与不可宣称的结论 |
+| [docs/bpsk-acquisition-capture-20261027.md](docs/bpsk-acquisition-capture-20261027.md) | BPSK 真实采集回放与获取判据 |
+| [docs/image-receiver-20261027.md](docs/image-receiver-20261027.md) | V32IMG1! 载荷协议、分包与整图 CRC 验收流程 |
+| [docs/spectrum-resolution-20261029.md](docs/spectrum-resolution-20261029.md) / [geometry](docs/spectrum-geometry-20261029.md) / [harmonic-confidence](docs/harmonic-confidence-20261029.md) | 频谱分辨率、几何与谐波置信度的核对记录 |
 | [docs/screenshots/](docs/screenshots/) | 13 张发布版本实屏截图（1024×600） |
 
 ## 许可证
