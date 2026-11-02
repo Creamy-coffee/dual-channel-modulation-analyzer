@@ -42,7 +42,7 @@ hard-float` 可执行文件，5 个命令行工具同样构建成功。过程与
 [`docs/build-verify-20261102.md`](build-verify-20261102.md)。
 
 > 这次重建用的是 Xilinx SDK 自带的 `arm-linux-gnueabihf-gcc 7.3.1`，**不是**团队正式的
-> `gcc-arm-10.3-2021.07`（`toolchain.cmake` 里写死的那套）。两者 ABI 相同但编译器版本不同，
+> `gcc-arm-10.3-2021.07`（`toolchain.cmake` 经 `SDK_TOOLCHAIN_ROOT` 指定的正式工具链）。两者 ABI 相同但编译器版本不同，
 > **发布二进制仍须用正式工具链重编一次**，并用 `file` 确认 `ARM, EABI5, hard-float`。
 
 ## 三、文档

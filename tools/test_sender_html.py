@@ -16,7 +16,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 HTML = os.path.join(HERE, "serial_frame_sender.html")
 OUTDIR = os.path.join(HERE, "_test")
-NODE = r"C:\Users\21542\.workbuddy\binaries\node\versions\22.22.2-6\node.exe"
+NODE = os.environ.get("NODE", "node")   # 工具链从 PATH 找，或用 NODE= 覆盖
 
 html = open(HTML, encoding="utf-8").read()
 m = re.search(r"<script>(.*)</script>", html, re.S)
@@ -54,7 +54,7 @@ if r.returncode != 0:
 
 # 再用协议校验器验一遍
 chk = os.path.join(HERE, "..", "docs", "tools", "check_frame.py")
-pypath = r"C:\Users\21542\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+pypath = sys.executable
 if os.path.exists(chk):
     r2 = subprocess.run([pypath, chk, os.path.join(OUTDIR, "frame_js.bin")],
                         capture_output=True, text=True, encoding="utf-8")

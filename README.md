@@ -125,21 +125,26 @@ SPEC 频谱帧（2096 B）、MEAS 测量帧（128 B）、ANA 调制帧（1076 B�
 
 ```bash
 # 依赖：cmake、ARM 交叉工具链、同级目录下的 LVGL 源码
+export SDK_TOOLCHAIN_ROOT=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf
 ./build.sh            # 增量编译
 CLEAN=1 ./build.sh    # 全量重编
 ```
 
-`build.sh` 用 `toolchain.cmake` 交叉编译，LVGL 目录可用 `LVGL_DIR=` 覆盖（默认 `../lvgl-release-v9.1`）。
+`build.sh` 用 `toolchain.cmake` 交叉编译。工具链根目录从 `SDK_TOOLCHAIN_ROOT` 环境变量取（或 `cmake -DTC_ROOT=`），仓库里不写死任何人的本机路径；LVGL 目录可用 `LVGL_DIR=` 覆盖（默认 `../lvgl-release-v9.1`）。
 BPSK 解码链另需 `third_party/liquid-dsp-1.7.0.tar.gz`：`third_party/liquid.cmake` 在配置阶段校验 SHA256 后离线解包并静态链接，不从网络取依赖。除 GUI 外还会构建 `bpsk_capture_decode`、`test_bpsk_decoder`、`test_raw_capture` 三个命令行工具（离线回放与自测用）。
 
 **部署到板子**
 
 ```bash
 ./deploy.sh                 # 通过 adb 推送并运行
+
+export BOARD_HOST=192.168.1.10 BOARD_USER=root BOARD_PASS=你的口令
 ./deploy_net.sh             # 或走网络：推送 → 校验 md5 → 一致后才覆盖 → 重启
 ```
 
-地址、账号、口令请按你们自己的板子环境配置，仓库不记录任何默认口令。
+地址、账号、口令请按你们自己的板子环境配置。`deploy_net.sh` 与 `tools/board_shot.py`
+从 `BOARD_HOST` / `BOARD_USER` / `BOARD_PASS` 环境变量读取，**仓库不记录任何默认口令**；
+未设置时会直接报错退出，不会悄悄用空口令去连。
 
 **运行**
 

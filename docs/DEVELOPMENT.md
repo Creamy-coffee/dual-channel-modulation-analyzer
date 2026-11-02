@@ -188,6 +188,7 @@ SSH_PASS=xxx python scripts/sftp_get.py \
 
 ```bash
 # Windows 侧，waveform_demo/ 目录下
+export BOARD_HOST=192.168.1.10 BOARD_USER=root BOARD_PASS=你的口令
 ./deploy_net.sh            # 推送 + md5 校验 + 重启 demo
 NO_RUN=1 ./deploy_net.sh   # 只推不启动
 ```

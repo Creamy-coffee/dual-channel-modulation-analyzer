@@ -21,10 +21,17 @@ import sys
 
 import paramiko
 
-HOST = os.environ.get("BOARD_HOST", "192.168.1.10")
+# 地址与凭据只从环境变量取，代码里不留默认值（仓库公开，写死等于泄露）
+HOST = os.environ.get("BOARD_HOST")
 PORT = int(os.environ.get("BOARD_PORT", "22"))
-USER = os.environ.get("BOARD_USER", "root")
-PASS = os.environ.get("BOARD_PASS", "root")
+USER = os.environ.get("BOARD_USER")
+PASS = os.environ.get("BOARD_PASS")
+
+
+def _need(name, value):
+    if not value:
+        sys.exit(f"缺少环境变量 {name}：export {name}=... 后再运行")
+    return value
 
 REMOTE_PPM = "/tmp/wave_frame.ppm"
 
@@ -60,7 +67,9 @@ def main():
 
     cli = paramiko.SSHClient()
     cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    cli.connect(HOST, port=PORT, username=USER, password=PASS,
+    cli.connect(_need("BOARD_HOST", HOST), port=PORT,
+                username=_need("BOARD_USER", USER),
+                password=_need("BOARD_PASS", PASS),
                 timeout=20, look_for_keys=False, allow_agent=False)
 
     rc, o, _ = sh(cli, "pidof waveform_demo")

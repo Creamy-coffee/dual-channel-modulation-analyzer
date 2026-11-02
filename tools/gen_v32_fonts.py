@@ -61,17 +61,17 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.dirname(HERE)
 
-REF_HTML = os.environ.get(
-    "REF_HTML",
-    r"D:\文档\xwechat_files\wxid_gtewgzaz8vtg22_5219\msg\file\2026-10\v32_linux_touch_ui-1.html")
-NODE = os.environ.get(
-    "NODE", r"C:\Users\21542\.workbuddy\binaries\node\versions\22.22.2-6\node.exe")
-LVFC = os.environ.get(
-    "LVFC", r"C:\Users\21542\.workbuddy\binaries\node\workspace\node_modules\lv_font_conv\lv_font_conv.js")
-PYTHON = os.environ.get(
-    "PYTHON", r"C:\Users\21542\.workbuddy\binaries\python\envs\default\Scripts\python.exe")
+# 参考稿只用于「按参考稿挑字符」，没有就走内置字符集；路径由环境变量给，
+# 不把任何人的本机路径写进仓库。
+REF_HTML = os.environ.get("REF_HTML", "")
+# 工具链从 PATH 找，找不到就用 NODE= / LVFC= 覆盖
+NODE = os.environ.get("NODE", "node")
+LVFC = os.environ.get("LVFC", "lv_font_conv")
+PYTHON = os.environ.get("PYTHON", sys.executable)
 
-FONTS_DIR = r"C:\Windows\Fonts"
+# 字体目录：默认取 Windows 系统字体目录，其他平台用 FONTS_DIR 覆盖
+_SYS_FONTS = os.environ.get("WINDIR") or os.environ.get("SystemRoot") or "C:"
+FONTS_DIR = os.environ.get("FONTS_DIR", os.path.join(_SYS_FONTS, "Fonts"))
 
 # 按优先级排列：先来的先挑字符
 FONT_PLAN = [

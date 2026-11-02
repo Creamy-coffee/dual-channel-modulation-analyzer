@@ -8,18 +8,16 @@
 #   必须拔插线。而板子网口上的 sshd 一直是稳的，所以部署改走 SSH/SFTP。
 #
 # 网络拓扑（板子网口直连 PC 网口）：
-#   PC   192.168.1.1 /24
-#   板子 192.168.1.10 /24   （板子的默认路由网关就是 PC）
+#   PC   <PC_IP> /24
+#   板子 <BOARD_HOST> /24   （板子的默认路由网关就是 PC）
 #
-# 板子 root 密码不是猜的，来自 SDK 的 buildroot defconfig：
-#   buildroot/configs/rockchip_hd_rk3506g_evb_nand_defconfig
-#   BR2_TARGET_GENERIC_ROOT_PASSWD="root"
-#   （用 openssl passwd -1 -salt <shadow里的盐> root 验证过，和板子 /etc/shadow 一致）
+# 板子的地址、账号、口令一律从环境变量取，脚本里不留任何默认值：
+#   export BOARD_HOST=192.0.2.20 BOARD_USER=root BOARD_PASS=******
+#   （口令取决于你们自己的镜像；改过就别再写回仓库）
 #
 # 用法（waveform_demo/ 目录下）：
 #   ./deploy_net.sh                 # 推 out/waveform_demo 到板子并重启 demo
 #   NO_RUN=1 ./deploy_net.sh        # 只推，不启动
-#   BOARD_PASS=xxx ./deploy_net.sh  # 换密码
 set -e
 cd "$(dirname "$0")"
 
@@ -34,16 +32,18 @@ export MSYS_NO_PATHCONV=1
 BIN=${BIN:-out/waveform_demo}
 DEST=${DEST:-/tmp/waveform_demo}
 VIEW=${VIEW:-wave}
-BOARD_HOST=${BOARD_HOST:-192.168.1.10}
-BOARD_USER=${BOARD_USER:-root}
-BOARD_PASS=${BOARD_PASS:-root}
+: "${BOARD_HOST:?请先 export BOARD_HOST=<板子地址>}"
+: "${BOARD_USER:?请先 export BOARD_USER=<板子账号>}"
+: "${BOARD_PASS:?请先 export BOARD_PASS=<板子口令，或改用 SSH 公钥>}"
 # board_push.py 认 BOARD_*，ssh_run.py 认 SSH_*，两个都导出免得混
 export BOARD_HOST BOARD_USER BOARD_PASS
 export SSH_HOST="$BOARD_HOST" SSH_USER="$BOARD_USER" SSH_PASS="$BOARD_PASS"
 
-# 需要带 paramiko 的解释器（Windows 侧那个 venv 里有）
-PYBIN=${PYBIN:-C:/Users/21542/.workbuddy/binaries/python/envs/default/Scripts/python.exe}
-[ -x "$PYBIN" ] || PYBIN=python
+# 需要一个装了 paramiko 的 python；PYBIN 指路径，或直接落到 PATH 里的 python
+PYBIN=${PYBIN:-python}
+command -v "$PYBIN" >/dev/null 2>&1 || { echo "找不到 python，请设 PYBIN=<python 路径>" >&2; exit 127; }
+"$PYBIN" -c "import paramiko" 2>/dev/null \
+  || { echo "该 python 没有 paramiko：pip install paramiko，或用 PYBIN 指到装好的解释器" >&2; exit 1; }
 
 [ -f "$BIN" ] || { echo "找不到 $BIN —— 先在编译机上跑 build.sh，把产物拷到 out/"; exit 1; }
 
@@ -67,4 +67,4 @@ EOF
 
 echo
 echo "==> 完成，屏幕上是 $VIEW 视图"
-echo "    测帧率 : cd ../scripts && BOARD_PASS=$BOARD_PASS $PYBIN ssh_run.py - 120 <<< 'cd /tmp && ./waveform_demo --fps 5'"
+echo "    测帧率 : cd ../scripts && $PYBIN ssh_run.py - 120 <<< 'cd /tmp && ./waveform_demo --fps 5'"

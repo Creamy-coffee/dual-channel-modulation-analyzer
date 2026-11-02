@@ -17,8 +17,9 @@
 
 **与正式构建流程的差异，先说清楚：**
 
-1. 团队正式构建用 ARM 官方 `gcc-arm-10.3-2021.07` 工具链（`toolchain.cmake` 里写死的路径），
-   本机没有那套工具链，用的是 Xilinx SDK 自带的 `arm-linux-gnueabihf-gcc 7.3.1`。
+1. 团队正式构建用 ARM 官方 `gcc-arm-10.3-2021.07` 工具链（`toolchain.cmake` 通过
+   `SDK_TOOLCHAIN_ROOT` 环境变量或 `-DTC_ROOT=` 指定），本机没有那套工具链，
+   用的是 Xilinx SDK 自带的 `arm-linux-gnueabihf-gcc 7.3.1`。
    两者都是 ARMv7-A hard-float，但**编译器版本不同**，产物不能直接当作发布二进制。
 2. 本机没有 cmake，屏端不是走 `./build.sh`，而是用**等价的命令行**完成同样的三件事：
    编 LVGL、编应用源码、静态链接 liquid。编译选项与 `toolchain.cmake` 一致
