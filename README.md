@@ -199,7 +199,7 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 | GitHub | 主要负责 |
 |---|---|
 | [@Creamy-coffee](https://github.com/Creamy-coffee) | RK3506 板端应用：DRM/KMS 渲染、触摸输入、串口链路接收与带限重建 |
-| [@YiHuan15](https://github.com/YiHuan15) | FPGA RTL 与数字信号处理：双通道采集、FFT、锁相、谐波分析、V32CAP3 前端 |
+| [@YiHuan15](https://github.com/YiHuan15) | FPGA RTL 与数字信号处理：双通道采集、FFT、锁相、谐波分析 |
 
 ## 文档索引
 
