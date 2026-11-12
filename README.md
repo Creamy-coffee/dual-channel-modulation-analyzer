@@ -164,6 +164,36 @@ SPEC 频谱帧（2096 B）、MEAS 测量帧（128 B）、ANA 调制帧（1076 B�
 | [skill/](skill/README.md) | UART 排查、协作提示词与 CRC32 校验 |
 | [report/](report/) | 设计报告、协作过程、复现与评测分析 |
 
+### 项目文件结构
+
+```text
+dual-channel-modulation-analyzer/
+├── src  # 设计源码与主机工具
+│   ├── fpga  # 
+│   │   ├── rtl  # FPGA RTL、查找表与滤波系数
+│   │   └── constraints  # 引脚、时钟与时序约束
+│   ├── linux  # RK3506 屏端源码、测试工具与依赖
+│   └── pc  # 
+│       └── image_sender  # 发生器控制与图片发送
+├── sim  # 仿真与验证
+│   ├── fpga  # FPGA 测试平台与参考比对
+│   └── run_rtl_sim.sh  # UART 命令仿真入口
+├── build  # 构建入口与实现报告
+│   ├── fpga  # 
+│   │   ├── build.tcl  # Vivado 批处理构建入口
+│   │   └── evidence  # 综合、布线、时序与资源报告
+│   └── linux  # 
+│       └── build.sh  # Linux 原生与 ARM 构建入口
+├── board  # 上板材料与实测截图
+│   ├── fpga  # 参考位流
+│   ├── linux  # 屏端程序及部署脚本
+│   ├── hardware  # AD9238 采集板原理图与 PCB 图
+│   └── screenshots  # 实屏结果
+├── data  # 抓包、测试数据、参考结果和版本哈希
+├── skill  # UART 排查工作流、CRC32 校验和自检样本
+└── report  # 设计报告、复现步骤、协作记录和评测分析
+```
+
 详见 [设计报告](report/design_report.md)、[复现指南](report/reproduce.md) 和 [评测指标与权重](report/scoring_analysis.md)。
 
 ## 文档索引
