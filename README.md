@@ -169,17 +169,17 @@ SPEC 频谱帧（2096 B）、MEAS 测量帧（128 B）、ANA 调制帧（1076 B�
 ```text
 dual-channel-modulation-analyzer/
 ├── src  # 设计源码与主机工具
-│   ├── fpga  # 
+│   ├── fpga
 │   │   ├── rtl  # FPGA RTL、查找表与滤波系数
 │   │   └── constraints  # 引脚、时钟与时序约束
 │   ├── linux  # RK3506 屏端源码、测试工具与依赖
-│   └── pc  # 
+│   └── pc
 │       └── image_sender  # 发生器控制与图片发送
 ├── sim  # 仿真与验证
 │   ├── fpga  # FPGA 测试平台与参考比对
 │   └── run_rtl_sim.sh  # UART 命令仿真入口
 ├── build  # 构建入口与实现报告
-│   ├── fpga  # 
+│   ├── fpga
 │   │   ├── build.tcl  # Vivado 批处理构建入口
 │   │   └── evidence  # 综合、布线、时序与资源报告
 │   └── linux  # 
