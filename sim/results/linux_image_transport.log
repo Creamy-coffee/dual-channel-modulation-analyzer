@@ -1,0 +1,6 @@
+image mode=5 phase=0.00 cfo=0.00 complete=1 packets=4 gaps=0 crc_errors=0
+image mode=3 phase=0.00 cfo=0.00 complete=1 packets=4 gaps=0 crc_errors=0
+image mode=6 phase=0.70 cfo=0.00 complete=1 packets=4 gaps=4 crc_errors=0
+image mode=6 phase=2.30 cfo=80.00 complete=1 packets=4 gaps=4 crc_errors=0
+IMAGE_TRANSPORT_PASS polarity_pair_phase_CRC_duplicate_gap_OOK_FSK_BPSK
+

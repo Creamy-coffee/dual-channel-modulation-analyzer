@@ -1,0 +1,55 @@
+{
+  "rows": [
+    {
+      "hz": 250000,
+      "frames": 13,
+      "H1_power_mean": 699187.2307692308,
+      "H1_power_std": 2994.1457644834795,
+      "raw_decimation": 1,
+      "relative_response_dB": 0.051640798846787114
+    },
+    {
+      "hz": 500000,
+      "frames": 13,
+      "H1_power_mean": 695004.3076923077,
+      "H1_power_std": 2515.9931897302963,
+      "raw_decimation": 1,
+      "relative_response_dB": 0.025580880805155092
+    },
+    {
+      "hz": 1000000,
+      "frames": 13,
+      "H1_power_mean": 690922.6153846154,
+      "H1_power_std": 2616.7523618173964,
+      "raw_decimation": 1,
+      "relative_response_dB": 0.0
+    },
+    {
+      "hz": 2000000,
+      "frames": 13,
+      "H1_power_mean": 690552.4615384615,
+      "H1_power_std": 2575.611921317101,
+      "raw_decimation": 1,
+      "relative_response_dB": -0.0023273062159752415
+    },
+    {
+      "hz": 4000000,
+      "frames": 13,
+      "H1_power_mean": 687752.1538461539,
+      "H1_power_std": 2242.3668613823297,
+      "raw_decimation": 1,
+      "relative_response_dB": -0.019974491579672245
+    },
+    {
+      "hz": 5000000,
+      "frames": 13,
+      "H1_power_mean": 687329.0769230769,
+      "H1_power_std": 3066.4880689353868,
+      "raw_decimation": 1,
+      "relative_response_dB": -0.022646915212535944
+    }
+  ],
+  "applied": false,
+  "calibrated": false,
+  "limit": "Source-referenced combined generator+cable+ADC+FFT response. Not traceable receiver-only calibration."
+}

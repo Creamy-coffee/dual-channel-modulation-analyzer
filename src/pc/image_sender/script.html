@@ -1,0 +1,211 @@
+<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>拍摄脚本驱动台 · 双通道信号采集与调制分析仪</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#0c1422;color:#e7effa;font:16px/1.6 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding-bottom:env(safe-area-inset-bottom)}
+header{padding:18px 4%;border-bottom:1px solid #33445b;position:sticky;top:0;background:#0c1422;z-index:20}
+h1{margin:0;font-size:20px;font-weight:500}
+small{color:#a7bbd1;font-size:13px}
+.wrap{margin:0 4%}
+.bar{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+button,select,input{font:inherit;border-radius:10px;padding:11px 14px;border:1px solid #425873;background:#1b2c42;color:#edf5ff}
+button{cursor:pointer;touch-action:manipulation}
+button.primary{background:#177d77;border-color:#177d77}
+button.warn{background:#8a3324;border-color:#a4452f}
+button:disabled{opacity:.45}
+button:active{transform:translateY(1px)}
+.scenes{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:24px}
+.card{background:#132135;border:1px solid #30465f;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.card.active{border-color:#177d77;box-shadow:inset 0 0 0 1px #177d77}
+.hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.no{font-size:20px;font-weight:500;color:#68dcc7}
+.tc{font-size:13px;color:#a7bbd1;font-variant-numeric:tabular-nums}
+.ttl{font-size:16px;font-weight:500;flex:1;min-width:140px}
+.page{font-size:12px;color:#79d9ff;border:1px solid #2c5c7a;border-radius:20px;padding:2px 10px}
+.gens{background:#0b1727;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;color:#cfe0f5;display:grid;gap:5px}
+.gens b{color:#ffd479;font-weight:500}
+.note{font-size:14px;color:#c6d6e8}
+.shot{font-size:13px;color:#8fa6bf;border-left:3px solid #2c5c7a;padding-left:10px}
+.res{font-size:13px;color:#68dcc7;min-height:20px}
+.res.bad{color:#ff9d9d}
+.log{background:#0b1727;border-radius:10px;padding:12px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:230px;overflow:auto;color:#cfe0f5}
+#shot{display:block;width:100%;border-radius:10px;border:1px solid #30465f;margin-top:8px}
+section{background:#132135;border:1px solid #30465f;border-radius:14px;padding:16px;margin-bottom:14px}
+h2{margin:0 0 10px;font-size:15px;font-weight:500}
+.modes{display:flex;gap:8px;flex-wrap:wrap}
+.danger{border-color:#a4452f;color:#ffc4b8}
+ol{margin:6px 0 0;padding-left:20px}
+li{margin:4px 0}
+@media(max-width:420px){.card{padding:13px}button{padding:12px 13px}}
+</style>
+<header><h1>拍摄脚本驱动台</h1><small>双通道信号采集与调制分析仪 · 3 分钟参赛视频 · 9 段</small></header>
+<div class="wrap">
+<div class="bar">
+  <a href="/" style="color:#79d9ff;text-decoration:none;padding:11px 14px;border:1px solid #425873;border-radius:10px;background:#1b2c42">← 控制台</a><button id="manualbtn">手动操作卡</button><button id="reload">刷新脚本</button>
+  <button id="shotbtn">抓取屏端画面</button>
+  <button id="quiet1" class="danger">拔掉发生器 CH1</button>
+  <button id="quiet2" class="danger">拔掉发生器 CH2</button>
+</div>
+<div id="status" class="res">加载中…</div>
+<div class="scenes" id="scenes"></div>
+
+<section id="manual" hidden>
+  <h2>手动操作卡（发生器未连电脑时照着设）</h2>
+  <p class="note" style="margin:0 0 10px">发生器脱离电脑时，按下表在<b>仪器前面板</b>直接设。CH1/CH2 指发生器面板上的两路输出；屏上 CH1/CH2 指分析仪两路输入，两者不要混淆。</p>
+  <div style="overflow-x:auto"><table id="mtable" style="width:100%;border-collapse:collapse;font-size:14px"></table></div>
+</section>
+
+<section>
+  <h2>段六 · 调制模式预设（1 MHz 载波）</h2>
+  <div class="modes" id="modes"></div>
+  <p class="note" style="margin:10px 0 0">OOK 与 BPSK 需要在「数字调制」页发送图案才能出符号判决，切到 <a href="/">控制台 → 数字调制</a>。</p>
+</section>
+
+<section>
+  <h2>拍摄纪律（现场照着念，别改口径）</h2>
+  <ol>
+    <li>不说「精度」——本项目未做幅相与失真标定，只说「通道测量可用」。</li>
+    <li>QPSK 不出现在解说里——屏端只有 I/Q 观测，符号恢复未移植。</li>
+    <li>判决有前提——都在人工指定符号率下做的，没有自动制式识别，要主动说明。</li>
+    <li>图片页不说「已通过整机验收」——独立抓包核验缺位，只讲两层 CRC 的判决逻辑。</li>
+    <li>别把「帧率」和「采样率」混说，也别背帧率数字——现场念屏上当下显示的值。</li>
+    <li>失效保护反而要展示——锁相页的「—」和调制页的「待判决」是加分项。</li>
+  </ol>
+</section>
+
+<section>
+  <h2>执行日志</h2>
+  <div class="log" id="log">（空）</div>
+</section>
+
+<section>
+  <h2>屏端实时画面</h2>
+  <button id="shotbtn2">抓取屏端画面</button>
+  <img id="shot" hidden alt="屏端画面">
+</section>
+</div>
+<script>
+const token='__TOKEN__';
+const $=s=>document.querySelector(s);
+let SCENES=[],MODES=[];
+function logline(t){const el=$('#log');if(el.textContent==='（空）')el.textContent='';el.textContent+=t+'\n';el.scrollTop=el.scrollHeight;}
+function status(t,bad){const el=$('#status');el.textContent=t;el.classList.toggle('bad',!!bad);}
+async function call(path,data){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Session-Token':token},body:JSON.stringify(data||{})});
+  const j=await r.json();
+  if(!r.ok||j.error)throw Error(j.error||r.status);
+  return j;
+}
+function genText(gens){
+  return gens.map(g=>{
+    const hz=(g.hz/1e6).toFixed(3)+' MHz';
+    const mv=Math.round(g.vpp*1000)+' mVpp';
+    const on=g.on?'输出开':'输出关';
+    return `<span><b>发生器 CH${g.ch}</b> ${hz} · ${mv} · ${g.wave} · 相位 ${g.phase}° · ${on}</span>`;
+  }).join('\n');
+}
+function renderScenes(){
+  const host=$('#scenes');host.innerHTML='';
+  SCENES.forEach((s,i)=>{
+    const d=document.createElement('div');d.className='card';d.dataset.idx=i;
+    d.innerHTML=`<div class="hd"><span class="no">${s.no}</span><span class="tc">${s.time}</span><span class="page">${s.page}</span></div>
+      <div class="ttl">${s.title}</div>
+      <div class="gens">${genText(s.gen)}</div>
+      <div class="note">${s.note}</div>
+      <div class="shot">${s.shot}</div>
+      <div class="res" data-r></div>
+      <button class="primary" data-apply="${i}">下发本段参数</button>`;
+    host.appendChild(d);
+  });
+  host.querySelectorAll('button[data-apply]').forEach(b=>{
+    b.onclick=async()=>{
+      const i=Number(b.dataset.apply),card=b.closest('.card');
+      card.querySelectorAll('button').forEach(x=>x.disabled=true);
+      card.classList.add('active');
+      status('正在下发 '+SCENES[i].no+' …');
+      try{
+        const r=await call('/api/scene/apply',{index:i});
+        const txt=`已下发并回读通过 · ${r.no} ${r.title}\n`+
+          r.applied.map(a=>`CH${a.ch}: ${(a.hz/1e6).toFixed(3)} MHz ${Math.round(a.vpp*1000)} mVpp ${a.wave} 相位${a.phase}° ${a.on?'ON':'OFF'}`).join('\n');
+        card.querySelector('[data-r]').textContent=txt;
+        card.querySelector('[data-r]').classList.remove('bad');
+        status(`✓ ${r.no} ${r.title} 下发完成（已回读核验）`,false);
+        logline(`[${new Date().toLocaleTimeString()}] ${r.no} ${r.title}\n`+r.applied.map(a=>`  发生器CH${a.ch} → ${(a.hz/1e6).toFixed(3)} MHz ${Math.round(a.vpp*1000)} mVpp ${a.wave} φ${a.phase}° ${a.on?'ON':'OFF'}`).join('\n'));
+      }catch(e){
+        card.querySelector('[data-r]').textContent='失败：'+e.message;
+        card.querySelector('[data-r]').classList.add('bad');
+        status('✗ 下发失败：'+e.message,true);
+        logline(`[${new Date().toLocaleTimeString()}] 失败 ${SCENES[i].no}：${e.message}`);
+      }finally{
+        card.querySelectorAll('button').forEach(x=>x.disabled=false);
+      }
+    };
+  });
+}
+function renderModes(){
+  const host=$('#modes');host.innerHTML='';
+  MODES.forEach((m,i)=>{
+    const b=document.createElement('button');
+    b.textContent=m.label;
+    b.onclick=async()=>{
+      host.querySelectorAll('button').forEach(x=>x.disabled=true);
+      status('正在设置 '+m.label+' …');
+      try{
+        const r=await call('/api/mode/apply',{index:i});
+        status(`✓ ${m.label} 已设置并回读通过`,false);
+        logline(`[${new Date().toLocaleTimeString()}] 调制模式 ${m.label}\n  CH${r.channel} ${(r.settings['BASE:FREQuency']/1e6).toFixed(3)} MHz ${r.settings['BASE:AMPLitude']} Vpp mode=${r.settings['MODE']}`);
+      }catch(e){status('✗ '+m.label+' 失败：'+e.message,true);logline('失败 '+m.label+'：'+e.message);}
+      finally{host.querySelectorAll('button').forEach(x=>x.disabled=false);}
+    };
+    host.appendChild(b);
+  });
+}
+function renderManual(){
+  const t=$('#mtable');
+  let h='<thead><tr><th style="text-align:left;padding:7px;border-bottom:1px solid #30465f">段</th><th style="text-align:left;padding:7px;border-bottom:1px solid #30465f">时间</th><th style="text-align:left;padding:7px;border-bottom:1px solid #30465f">发生器 CH1</th><th style="text-align:left;padding:7px;border-bottom:1px solid #30465f">发生器 CH2</th><th style="text-align:left;padding:7px;border-bottom:1px solid #30465f">屏上该看</th></tr></thead><tbody>';
+  SCENES.forEach(s=>{
+    const g={};s.gen.forEach(x=>g[x.ch]=x);
+    const f=k=>{const x=g[k];if(!x)return '—';return (x.hz/1e6)+' MHz / '+Math.round(x.vpp*1000)+' mVpp'+(x.phase?' / φ'+Math.round(x.phase)+'°':'')+' / 输出'+(x.on?'开':'关');};
+    h+='<tr><td style="padding:7px;border-bottom:1px solid #24384f;white-space:nowrap">'+s.no+' '+s.title.split('：')[0]+'</td>'+
+       '<td style="padding:7px;border-bottom:1px solid #24384f;white-space:nowrap">'+s.time+'</td>'+
+       '<td style="padding:7px;border-bottom:1px solid #24384f">'+f(1)+'</td>'+
+       '<td style="padding:7px;border-bottom:1px solid #24384f">'+f(2)+'</td>'+
+       '<td style="padding:7px;border-bottom:1px solid #24384f;white-space:nowrap">'+s.page+'</td></tr>';
+  });
+  t.innerHTML=h+'</tbody>';
+}
+$('#manualbtn').onclick=()=>{
+  const sec=$('#manual');
+  sec.hidden=!sec.hidden;
+  if(!sec.hidden)sec.scrollIntoView({behavior:'smooth'});
+};
+async function loadScenes(){
+  const r=await fetch('/api/scenes',{cache:'no-store'});
+  const j=await r.json();
+  SCENES=j.scenes;MODES=j.modes;
+  renderScenes();renderModes();renderManual();
+  status('就绪 · 点每张卡片的「下发本段参数」把发生器切到该段状态');
+}
+async function grab(){
+  const b=$('#shotbtn');
+  b.disabled=true;status('正在抓取屏端画面…');
+  try{
+    const r=await call('/api/screen',{});
+    $('#shot').src=r.image;$('#shot').hidden=false;
+    status('✓ 屏端画面已更新');
+  }catch(e){status('✗ 抓屏失败：'+e.message,true);}
+  finally{b.disabled=false;}
+}
+$('#reload').onclick=()=>{status('刷新中…');loadScenes().then(()=>status('脚本已刷新')).catch(e=>status('刷新失败：'+e.message,true));};
+$('#shotbtn').onclick=grab;
+$('#shotbtn2').onclick=grab;
+[1,2].forEach(ch=>{
+  $('#quiet'+ch).onclick=async()=>{
+    try{
+      const r=await call('/api/scene/quiet',{channel:ch});
+      status(`✓ 发生器 CH${ch} 已关闭 —— 现在切到锁相页，读数应显示「—」/「相位变化超限」`,false);
+      logline(`[${new Date().toLocaleTimeString()}] 关闭发生器 CH${ch} 输出（演示失效保护）`);
+    }catch(e){status('✗ 失败：'+e.message,true);}
+  };
+});
+loadScenes().catch(e=>status('脚本加载失败：'+e.message,true));
+</script></html>

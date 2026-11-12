@@ -1,0 +1,50 @@
+{
+  "rows": [
+    {
+      "hz": 250000,
+      "observed_db": 0.051640798846787114,
+      "single_frame_std_db": 0.0185978937587084,
+      "relative_mean_repeatability_se_db": 0.00688601635496895,
+      "historical_holdout_corrected_db": -0.009170490499431708
+    },
+    {
+      "hz": 500000,
+      "observed_db": 0.025580880805155092,
+      "single_frame_std_db": 0.0157219451262708,
+      "relative_mean_repeatability_se_db": 0.006310685580365098,
+      "historical_holdout_corrected_db": 0.001415834045386994
+    },
+    {
+      "hz": 1000000,
+      "observed_db": 0.0,
+      "single_frame_std_db": 0.016448167796794068,
+      "relative_mean_repeatability_se_db": 0,
+      "historical_holdout_corrected_db": 0.0
+    },
+    {
+      "hz": 2000000,
+      "observed_db": -0.0023273062159752415,
+      "single_frame_std_db": 0.016198248608950156,
+      "relative_mean_repeatability_se_db": 0.006402676614984183,
+      "historical_holdout_corrected_db": 0.0036241125236857815
+    },
+    {
+      "hz": 4000000,
+      "observed_db": -0.019974491579672245,
+      "single_frame_std_db": 0.014159861933618947,
+      "relative_mean_repeatability_se_db": 0.006019480643650275,
+      "historical_holdout_corrected_db": 0.012318736541657837
+    },
+    {
+      "hz": 5000000,
+      "observed_db": -0.022646915212535944,
+      "single_frame_std_db": 0.019375854912505642,
+      "relative_mean_repeatability_se_db": 0.00704909147153001,
+      "historical_holdout_corrected_db": 0.005123874015343949
+    }
+  ],
+  "traceable": false,
+  "source_systematic_uncertainty": "unknown",
+  "independent_current_holdout": false,
+  "online_enabled": false
+}

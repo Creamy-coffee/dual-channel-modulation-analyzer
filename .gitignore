@@ -1,6 +1,6 @@
 # 构建产物 / 截图（out/ 有 100MB+ 的板子截图和交叉编译产物，不进仓库）
 out/
-build/
+/build/work/
 
 # 交叉编译的中间文件
 *.o
@@ -31,3 +31,6 @@ webtalk/
 *.bit
 *.ltx
 *.wcfg
+
+/src/linux/CMakeLists.txt
+/src/linux/lvgl-release-v9.1/

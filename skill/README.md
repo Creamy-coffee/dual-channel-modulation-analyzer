@@ -7,6 +7,6 @@
 | [串口排查清单与提示词](uart_workflow.md) | 发送端完成但接收无数据、坏帧或界面停滞时，按物理层、帧层、配置、业务结果逐层记录。提示词可交给协作者生成最小验证实验。 | 本项目发送端完成、屏端选 CH2 时为 0 包。按流程核对通道并切到 CH1，收到 8/8 包、整图 CRC 通过。提示词是基于该排查过程整理的模板。 | 没有分层计数、收发时段未对齐、串口被多个进程同时读取时，须先补证据。 |
 | [CRC32 校验脚本](check_crc32.py) | 已知有效载荷边界且使用标准 CRC32 时，运行 `python skill/check_crc32.py payload.bin expected_crc_hex`。退出码 0 表示一致，1 表示不一致。 | [本项目图像载荷](fixtures/smiley_payload.hex)复算与板测 CRC 一致。无硬件回归也覆盖标准参考向量与单字节翻转。由“发送完成”和“整图正确”需要分别验收提炼而来。 | CRC16、自定义 CRC32、载荷未解包或预期值来自同一错误链路时，须调整算法或更换独立参考。 |
 
-在仓库根目录执行 `python skill/self_test.py`。亦可将整个 skill 目录复制到另一个工程后运行同一命令。校验工具不依赖本项目帧头、板卡或目录。实测为本项目的 UART 和 OOK 链路。通用性验证覆盖离线载荷，未做 PYNQ 或其他板卡实测。
+在仓库根目录执行 `python skill/self_test.py`。亦可将整个 skill 目录复制到另一个工程后运行同一命令。校验工具不依赖本项目帧头、板卡或目录。实测为本项目的 UART 和 OOK 链路。通用性验证覆盖离线载荷。硬件验收覆盖本项目板卡。
 
-案例和验收口径见 [板测案例](validation.md)。协作历史见仓库的 [大模型辅助优化记录](../docs/llm-assisted-optimization-log.md)。
+案例和验收口径见 [板测案例](validation.md)。协作历史见仓库的 [大模型辅助优化记录](../report/llm-assisted-optimization-log.md)。

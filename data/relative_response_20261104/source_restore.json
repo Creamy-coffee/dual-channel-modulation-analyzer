@@ -1,0 +1,16 @@
+{
+  "original": {
+    "MODE": "CONTinue",
+    "OUTPut": "1",
+    "BASE:WAVe": "SINe",
+    "BASE:AMPLitude": "5.000000e-01",
+    "BASE:FREQuency": "1.000000e+06"
+  },
+  "restored": {
+    "MODE": "CONTinue",
+    "OUTPut": "1",
+    "BASE:WAVe": "SINe",
+    "BASE:AMPLitude": "5.000000e-01",
+    "BASE:FREQuency": "1.000000e+06"
+  }
+}

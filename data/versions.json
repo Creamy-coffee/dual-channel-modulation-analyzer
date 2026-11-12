@@ -1,0 +1,13 @@
+{
+  "fpga_source_id": "a222905e5799",
+  "bit_sha256": "76afefdbf47d3cdb31ea5eaba13fd96468875622ede87bce231b217367e0b051",
+  "linux_deployed_sha256": "9ec2cbff1d29510ffd0198b232ca071e7f844c166278e9475230a14b5125520a",
+  "linux_source": "2026-11-12 local working tree snapshot; binary hash independently matches deployment record",
+  "clean_build_verified": {
+    "linux_native": true,
+    "linux_arm": true,
+    "fpga_implementation": false
+  },
+  "linux_source_base_commit": "76f7affe2e66779065336ab07632239b16783007",
+  "linux_arm_rebuild_sha256": "672e5e6f865729c526fbbc408eadae702dea55b3f23cad5c95b416cea4aeb70f"
+}

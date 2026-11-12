@@ -4,7 +4,7 @@
 
 > 2026 全国大学生嵌入式芯片与系统设计竞赛 · FPGA 创新设计赛道 · AMD 自主选题
 
-![示波器页：双通道交叉接线，3 MHz 接 CH1、1 MHz 接 CH2，同一时间轴](docs/screenshots/01-scope-dual.png)
+![示波器页：双通道交叉接线，3 MHz 接 CH1、1 MHz 接 CH2，同一时间轴](board/screenshots/01-scope-dual.png)
 
 ## 系统组成
 
@@ -22,9 +22,9 @@
 | 重建 | 原始样点 vs 带限插值重建，同一时间窗上下对齐；按波形类型决定是否重建 |
 | 调制 | DDC + 包络 / 频偏 / I-Q：AM 调制度、OOK 与 2FSK 的 bit 判决、BPSK 符号跟踪与 I/Q 观测、QPSK 仅 I/Q 观测 |
 | 系统 | 渲染帧率、链路吞吐、丢包与 CRC 统计等板载实测值 |
-| 图片 | V32IMG1! 载荷：OOK / 2FSK / BPSK 解出的符号 → 曼彻斯特解码 → 分包 CRC32 → 整图 CRC32，全部通过才显示画面；整图链路以合成回环与 ADB 逐像素核验，真实载波下的独立抓包验收未做 |
+| 图片 | V32IMG1! 载荷：OOK / 2FSK / BPSK 解出的符号 → 曼彻斯特解码 → 分包 CRC32 → 整图 CRC32，全部通过才显示画面；已验证 OOK 真实载波整图接收，独立串口抓包仍待补充 |
 
-> 七页屏端程序源码就在本仓库 `src/`。构建额外依赖 `third_party/liquid-dsp-1.7.0.tar.gz`（BPSK 符号跟踪用），配置时校验 SHA 后离线解包，不联网取依赖。版本、bit 哈希与提交号的对应见 [docs/VERSION.md](docs/VERSION.md)。
+> 七页屏端程序源码就在本仓库 `src/`。构建额外依赖 `src/linux/third_party/liquid-dsp-1.7.0.tar.gz`（BPSK 符号跟踪用），配置时校验 SHA 后离线解包，不联网取依赖。版本、bit 哈希与提交号的对应见 [report/VERSION.md](report/version.md)。
 
 ## FPGA 侧
 
@@ -32,15 +32,15 @@
 
 | 能力 | 怎么做的 | 源码 |
 |---|---|---|
-| 双通道 12 位 65 MSPS 同步采集 | AD9238 两路在同一采样沿锁存，偏移二进制转二补码；两通道同一帧，不分时切换 | `fpga/rtl/ad9238_capture.v` |
-| 4096 点共享 FFT | 时分复用 radix-2 DIT 蝶形，每级右移 1 位（总归一化 1/N）；多通道串行复用同一套旋转因子表，只搜 1…N/2；旋转因子为预生成表 `twiddle_4096.mem` | `fpga/rtl/fft_frame_4ch.v`、`fpga/rtl/twiddle_4096.mem` |
-| 多速率抽取前端 | CIC + 可换系数 FIR（wide / narrow 多套 `.mem`），按信号稳定性自动换档 | `fpga/rtl/multirate_fft_frontend.v`、`fpga/rtl/meas_bw_ctrl.v` |
-| DDC 数字下变频 | NCO 混频（Q15 sin/cos 表）+ CIC / FIR 抽取，AM、2FSK、BPSK、OOK 的基带都从这里出 | `fpga/rtl/ddc_nco_mixer.v`、`fpga/rtl/ddc_cic_decimator.v`、`fpga/rtl/ddc_fir_decimator.v` |
-| 片上频率捕获 + 锁相 | 「FFT 粗估 → 精扫 → 锁定」三段式，一份 bitstream 扫完 ~200 Hz…32.4 MHz（搜索范围，边界未做标定），换载频不用重编 | `fpga/rtl/freq_scan_ctrl.v`、`fpga/rtl/local_afc_2ch.v`、`fpga/rtl/lockin_core_2ch.v` |
-| 谐波与 THD | H1–H5 功率存表、log2 表转 dB、64 位整数开方算 THD 2–5 | `fpga/rtl/harmonic_power_store.v`、`fpga/rtl/isqrt_u64.v` |
-| 成帧与链路 | 多路帧并行仲裁 + AB5 时序 + 逐帧 CRC32，2 Mbaud 8N1 发出 | `fpga/rtl/parallel_frame_arbiter.v`、`fpga/rtl/ab5_frame_sequencer.v`、`fpga/rtl/v32cap3_tx.v` |
+| 双通道 12 位 65 MSPS 同步采集 | AD9238 两路在同一采样沿锁存，偏移二进制转二补码；两通道同一帧，不分时切换 | `src/fpga/rtl/ad9238_capture.v` |
+| 4096 点共享 FFT | 时分复用 radix-2 DIT 蝶形，每级右移 1 位（总归一化 1/N）；多通道串行复用同一套旋转因子表，只搜 1…N/2；旋转因子为预生成表 `twiddle_4096.mem` | `src/fpga/rtl/fft_frame_4ch.v`、`src/fpga/rtl/twiddle_4096.mem` |
+| 多速率抽取前端 | CIC + 可换系数 FIR（wide / narrow 多套 `.mem`），按信号稳定性自动换档 | `src/fpga/rtl/multirate_fft_frontend.v`、`src/fpga/rtl/meas_bw_ctrl.v` |
+| DDC 数字下变频 | NCO 混频（Q15 sin/cos 表）+ CIC / FIR 抽取，AM、2FSK、BPSK、OOK 的基带都从这里出 | `src/fpga/rtl/ddc_nco_mixer.v`、`src/fpga/rtl/ddc_cic_decimator.v`、`src/fpga/rtl/ddc_fir_decimator.v` |
+| 片上频率捕获 + 锁相 | 「FFT 粗估 → 精扫 → 锁定」三段式，一份 bitstream 扫完 ~200 Hz…32.4 MHz（搜索范围，边界未做标定），换载频不用重编 | `src/fpga/rtl/freq_scan_ctrl.v`、`src/fpga/rtl/local_afc_2ch.v`、`src/fpga/rtl/lockin_core_2ch.v` |
+| 谐波与 THD | H1–H5 功率存表、log2 表转 dB、64 位整数开方算 THD 2–5 | `src/fpga/rtl/harmonic_power_store.v`、`src/fpga/rtl/isqrt_u64.v` |
+| 成帧与链路 | 多路帧并行仲裁 + AB5 时序 + 逐帧 CRC32，2 Mbaud 8N1 发出 | `src/fpga/rtl/parallel_frame_arbiter.v`、`src/fpga/rtl/ab5_frame_sequencer.v`、`src/fpga/rtl/v32cap3_tx.v` |
 
-资源与时序（`fpga/build_evidence/` 是原机报告，实现 ID `a222905e`，Routed 状态）
+资源与时序（`build/fpga/evidence/` 是原机报告，实现 ID `a222905e`，Routed 状态）
 
 | 资源 | 占用 |
 |---|---|
@@ -50,12 +50,12 @@
 | Block RAM | 32×RAMB36 + 8×RAMB18，36 块等效（样点缓存、旋转因子、系数表、波形 LUT） |
 | 时序 | WNS +0.172 ns、WHS +0.010 ns，无 setup / hold 违例 |
 
-构建：`fpga/build.tcl` 提供完整构建脚本（Vivado 批处理建工程 → 综合 → 实现 → 出 bit）。
+构建：`build/fpga/build.tcl` 提供完整构建脚本（Vivado 批处理建工程 → 综合 → 实现 → 出 bit）。
 2026-11-02 已在仓库外的独立副本上用同一套 Vivado 2018.3 跑通全流程：WNS +0.172 ns / WHS +0.010 ns
 （0 个失败端点）、20294 LUT / 13111 FF / 80 DSP / 36 BRAM、DRC 138 条全为 Warning 无 Error，
-与 `fpga/build_evidence/` 逐项一致。bit 的 SHA256 不会相同——Vivado 把构建时间写进 bit 头，
+与 `build/fpga/evidence/` 逐项一致。bit 的 SHA256 不会相同——Vivado 把构建时间写进 bit 头，
 一致性应按 USR_ACCESS + 时序/资源 + 上板功能判定。过程见
-[build-verify-20261102.md](docs/build-verify-20261102.md)。
+[build-verify-20261102.md](report/build-verify-20261102.md)。
 
 ## 调制制式与判决
 
@@ -108,48 +108,22 @@ SPEC 频谱帧（2096 B）、MEAS 测量帧（128 B）、ANA 调制帧（1076 B�
 | `10-mod-2fsk.png` / `12-mod-ook.png` | 1 MHz 载波、1000 Bd | 2FSK 频偏 1525.0 Hz、bit 同步；OOK bit 同步、bits 序列 | 指定码率下的符号同步；未做全码率 / 全信噪比统计 |
 | `11-mod-bpsk.png` | 1 MHz 载波、1000 Bd，人工指定 Rs | EVM 0.060、CFO +132 Hz，状态「待判决」 | 早期一次运行：观测量与获取资格判据有效，但该次未获符号同步，不能当作判决成功（后续已闭环，见下一行） |
 | BPSK 实机闭环（2026-10-27） | 发生器 CH2 → ADC CH0 → 屏端 CH1；1 MHz 载波、1000 bit/s、PN7、0°/180° | 372 个 ANA 帧 CRC 全对、帧号 10665–11036 连续、覆盖 6.001 s；ARM 导出 5747 bit；训练后 5460 次检查 0 错；GUI 独立审计 24.2463 s 合格片段、末次 24702 次参考检查零错零擦除；EVM 0.0260–0.0481 | 指定码率下的实机判决闭环；不是通用 BER、协议帧同步或绝对极性；180° 极性歧义需外部参考 |
-| [bpsk-bit-decoder-20261026.md](docs/bpsk-bit-decoder-20261026.md) 的离线用例 | 合成基带，两种相位极性、80 Hz 载波偏差 | 符号恢复与 PN7 检查通过 | 解码链路在本机软件成立；合成基带不等于发生器→ADC→屏幕实机链路 |
-| [image-receiver-20261027.md](docs/image-receiver-20261027.md) 本机软件验证 | OOK / 2FSK / BPSK 生产 DSP → 曼彻斯特 → 包 CRC → 图块 → 整图 CRC | 全链通过 | 协议与解码链正确；尚无语发器→ADC→屏幕的整机图片传输记录 |
+| [bpsk-bit-decoder-20261026.md](report/bpsk-bit-decoder-20261026.md) 的离线用例 | 合成基带，两种相位极性、80 Hz 载波偏差 | 符号恢复与 PN7 检查通过 | 解码链路在本机软件成立；合成基带不等于发生器→ADC→屏幕实机链路 |
+| [image-receiver-20261027.md](report/image-receiver-20261027.md) 本机软件验证 | OOK / 2FSK / BPSK 生产 DSP → 曼彻斯特 → 包 CRC → 图块 → 整图 CRC | 全链通过 | 协议与解码链正确；此条为历史离线用例，后续实屏证据见下一条 |
 | `fpga/tests/` RTL 仿真 | tb_adc_parallel、local_afc_2ch、meas_bw_ctrl、fft_frame_4ch 等 | Vivado 时序波形 | 数字逻辑功能正确性；不含模拟前端与板级噪声 |
-| `fpga/build_evidence/*.rpt` | 实现 `a222905e` | 20294 LUT / 80 DSP / WNS +0.172 ns | 该次实现的资源与时序；换代码或换工具版本需重测 |
-| [build-verify-20261102.md](docs/build-verify-20261102.md) 屏端重建 | 仓库外独立副本；LVGL 9.1.0 + liquid-dsp 1.7.0（SHA256 与 `third_party/liquid.cmake` 一致）| LVGL 284 / 应用 21 个源文件全部编译通过，链接得到 `ELF32 ARM v7-A VFPv4 hard-float`，2,258,844 B；5 个命令行工具同样构建成功 | 源码自洽可编译；编译器是 GCC 7.3.1，不是正式工具链，且未上板 |
+| `build/fpga/evidence/*.rpt` | 实现 `a222905e` | 20294 LUT / 80 DSP / WNS +0.172 ns | 该次实现的资源与时序；换代码或换工具版本需重测 |
+| [build-verify-20261102.md](report/build-verify-20261102.md) 屏端重建 | 仓库外独立副本；LVGL 9.1.0 + liquid-dsp 1.7.0（SHA256 与 `src/linux/third_party/liquid.cmake` 一致）| LVGL 284 / 应用 21 个源文件全部编译通过，链接得到 `ELF32 ARM v7-A VFPv4 hard-float`，2,258,844 B；5 个命令行工具同样构建成功 | 源码自洽可编译；编译器是 GCC 7.3.1，不是正式工具链，且未上板 |
 | 主机自测（同一份源码）| `test_bpsk_decoder` / `test_ook_decoder` / `test_fsk_decoder` / `test_fft_windows` / `test_fft` | 全部 PASS：BPSK 12 例各恢复 3778–3780 bit、PN7 全锁、`errors=0`、EVM 0.0277–0.0338 | 算法与解码链在软件层成立；合成基带不等于实机链路 |
 
 每帧 CRC32 通过只说明这一帧完整到达，不说明幅度、相位或调制度准确，所以最后一列单独写了结论范围。
 
+11 月 12 日 OOK 板测使用 1 MHz 载波和 1000 Bd。32×64 图像收齐 8/8 包，整图 CRC32 32f70bed，2048 像素逐点无差异。见 [实屏](board/screenshots/ook_smiley_20261112.png) 和 [比对结果](data/image/pixel_comparison.json)。
+
 ## 快速开始
 
-### 交叉编译（Linux 主机，ARMv7 hard-float）
-
-```bash
-# 依赖：cmake、ARM 交叉工具链、同级目录下的 LVGL 源码
-export SDK_TOOLCHAIN_ROOT=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf
-./build.sh            # 增量编译
-CLEAN=1 ./build.sh    # 全量重编
-```
-
-`build.sh` 用 `toolchain.cmake` 交叉编译。工具链根目录从 `SDK_TOOLCHAIN_ROOT` 环境变量取（或 `cmake -DTC_ROOT=`），仓库里不写死任何人的本机路径；LVGL 目录可用 `LVGL_DIR=` 覆盖（默认 `../lvgl-release-v9.1`）。
-BPSK 解码链另需 `third_party/liquid-dsp-1.7.0.tar.gz`：`third_party/liquid.cmake` 在配置阶段校验 SHA256 后离线解包并静态链接，不从网络取依赖。除 GUI 外还会构建 `bpsk_capture_decode`、`test_bpsk_decoder`、`test_raw_capture` 三个命令行工具（离线回放与自测用）。
-
-### 部署到板子
-
-```bash
-./deploy.sh                 # 通过 adb 推送并运行
-
-export BOARD_HOST=192.168.1.10 BOARD_USER=root BOARD_PASS=你的口令
-./deploy_net.sh             # 或走网络：推送 → 校验 md5 → 一致后才覆盖 → 重启
-```
-
-地址、账号、口令请按你们自己的板子环境配置。`deploy_net.sh` 与 `tools/board_shot.py`
-从 `BOARD_HOST` / `BOARD_USER` / `BOARD_PASS` 环境变量读取，仓库不记录任何默认口令；
-未设置时会直接报错退出，不会悄悄用空口令去连。
-
-### 运行
-
-```bash
-waveform_demo --source uart          # 真实串口数据（默认 2 Mbaud 8N1）
-waveform_demo --source demo          # 无板子时用合成信号看界面
-```
+- FPGA：Vivado 2018.3 运行 `vivado -mode batch -source build/fpga/build.tcl`。
+- Linux：按 [复现指南](report/reproduce.md) 构建及部署。
+- 验证：运行 `bash sim/run_rtl_sim.sh` 和 `python skill/self_test.py`。
 
 ## 已知边界
 
@@ -157,7 +131,7 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 
 - 板端需 root 运行（读 `/dev/input/event0` 注入触摸、直接写 DRM）。
 - 单 connector / 单屏；官方 `lv_demo` 必须先停，否则会抢 DRM 与输入设备。
-- 中文字体是界面字符的子集，改文案需重跑 `tools/gen_v32_fonts.py`，否则新字是方块。
+- 中文字体是界面字符的子集，改文案需重跑 `src/linux/tools/gen_v32_fonts.py`，否则新字是方块。
 
 ### 测量边界
 
@@ -169,7 +143,7 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 
 ## 版本与复现
 
-`main` 上同时有 FPGA 源码与屏端源码，但两者不是"一次提交全部对齐"：实现 ID、bit 哈希、屏端程序所在分支与提交、工具版本、已知差异，全部记在 [docs/VERSION.md](docs/VERSION.md)。提交参赛材料时以该文件为准。
+`main` 上同时有 FPGA 源码与屏端源码，但两者不是"一次提交全部对齐"：实现 ID、bit 哈希、屏端程序所在分支与提交、工具版本、已知差异，全部记在 [report/VERSION.md](report/version.md)。提交参赛材料时以该文件为准。
 
 ## 团队成员
 
@@ -178,29 +152,37 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 | [@Creamy-coffee](https://github.com/Creamy-coffee) | RK3506 板端应用：DRM/KMS 渲染、触摸输入、串口链路接收与带限重建 |
 | [@YiHuan15](https://github.com/YiHuan15) | FPGA RTL 与数字信号处理：双通道采集、FFT、锁相、谐波分析 |
 
-## AMD 自主选题技能包
+## AMD 自主选题交付目录
 
-[FPGA 串口链路排查技能包](skill/README.md)包含 UART 分层排查、协作提示词、CRC32 脚本与可复跑样本。运行 `python skill/self_test.py` 可复验。
+| 目录 | 内容 |
+|---|---|
+| [src/](src/) | FPGA RTL 与约束、Linux 屏端、PC 发生器工具 |
+| [sim/](sim/) | 测试平台、验证脚本和复验日志 |
+| [build/](build/) | 构建入口、综合与布线报告 |
+| [board/](board/) | 位流、板端部署及实测截图 |
+| [data/](data/) | 采样、参考输入与比对结果 |
+| [skill/](skill/README.md) | UART 排查、协作提示词与 CRC32 校验 |
+| [report/](report/) | 设计报告、协作过程、复现与评测分析 |
 
-本仓库沿用现有布局。按 AMD 指南 §3.3.5.4，`fpga/` 和 `src/` 对应设计源码，`fpga/build.tcl` 与 `fpga/build_evidence/` 对应构建与实现报告，`docs/` 对应设计、协作记录及验证材料，`skill/` 对应技能包。
+详见 [设计报告](report/design_report.md)、[复现指南](report/reproduce.md) 和 [评测指标与权重](report/scoring_analysis.md)。
 
 ## 文档索引
 
 | 文档 | 内容 |
 |---|---|
-| [docs/VERSION.md](docs/VERSION.md) | 参赛版本清单：实现 ID、bit 哈希、屏端程序、工具版本、已知差异 |
-| [docs/build-verify-20261102.md](docs/build-verify-20261102.md) | 干净环境重建验收：环境、命令、屏端产物、FPGA 时序/资源/DRC 对比、未覆盖项 |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发记录：无 framebuffer 怎么点屏、触摸与协议细节、参数调整、排错工具 |
-| [fpga/README.md](fpga/README.md) | FPGA 工程结构、构建方法、接口与边界 |
-| [docs/V32CAP3_FPGA_TX_SPEC.md](docs/V32CAP3_FPGA_TX_SPEC.md) | 上位机协议与帧格式 |
-| [docs/ook-bit-decoder-20261026.md](docs/ook-bit-decoder-20261026.md) / [fsk](docs/fsk-bit-decoder-20261026.md) / [bpsk](docs/bpsk-bit-decoder-20261026.md) | 三种制式的判决算法、参数、适用条件与不可宣称的结论 |
-| [docs/bpsk-acquisition-capture-20261027.md](docs/bpsk-acquisition-capture-20261027.md) | BPSK 真实采集回放与获取判据 |
-| [docs/image-receiver-20261027.md](docs/image-receiver-20261027.md) | V32IMG1! 载荷协议、分包与整图 CRC 验收流程 |
-| [docs/spectrum-resolution-20261029.md](docs/spectrum-resolution-20261029.md) / [geometry](docs/spectrum-geometry-20261029.md) / [harmonic-confidence](docs/harmonic-confidence-20261029.md) | 频谱分辨率、几何与谐波置信度的核对记录 |
-| [docs/screenshots/](docs/screenshots/) | 13 张发布版本实屏截图（1024×600） |
+| [report/VERSION.md](report/version.md) | 参赛版本清单：实现 ID、bit 哈希、屏端程序、工具版本、已知差异 |
+| [report/build-verify-20261102.md](report/build-verify-20261102.md) | 干净环境重建验收：环境、命令、屏端产物、FPGA 时序/资源/DRC 对比、未覆盖项 |
+| [report/DEVELOPMENT.md](report/development.md) | 开发记录：无 framebuffer 怎么点屏、触摸与协议细节、参数调整、排错工具 |
+| [fpga/README.md](sim/fpga/README.md) | FPGA 工程结构、构建方法、接口与边界 |
+| [report/V32CAP3_FPGA_TX_SPEC.md](report/v32cap3_fpga_tx_spec.md) | 上位机协议与帧格式 |
+| [report/ook-bit-decoder-20261026.md](report/ook-bit-decoder-20261026.md) / [fsk](report/fsk-bit-decoder-20261026.md) / [bpsk](report/bpsk-bit-decoder-20261026.md) | 三种制式的判决算法、参数、适用条件与不可宣称的结论 |
+| [report/bpsk-acquisition-capture-20261027.md](report/bpsk-acquisition-capture-20261027.md) | BPSK 真实采集回放与获取判据 |
+| [report/image-receiver-20261027.md](report/image-receiver-20261027.md) | V32IMG1! 载荷协议、分包与整图 CRC 验收流程 |
+| [report/spectrum-resolution-20261029.md](report/spectrum-resolution-20261029.md) / [geometry](report/spectrum-geometry-20261029.md) / [harmonic-confidence](report/harmonic-confidence-20261029.md) | 频谱分辨率、几何与谐波置信度的核对记录 |
+| [report/screenshots/](board/screenshots) | 13 张发布版本实屏截图（1024×600） |
 
 ## 许可证
 
-项目自身代码采用 GNU GPL v3.0（GPL-3.0-only），详见 [LICENSE](LICENSE) 与 [许可范围说明](LICENSING.md)。
+项目自身代码采用 GNU GPL v3.0（GPL-3.0-only），详见 [LICENSE](LICENSE) 与 [许可范围说明](licensing.md)。
 
 第三方组件：LVGL v9.1（MIT，需自行获取源码，仓库不分发）；Xilinx Vivado 2018.3 为厂商工具，不随仓库分发。其余第三方归属见 `LICENSING.md`。

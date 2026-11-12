@@ -1,0 +1,13 @@
+{
+  "mode": "ook",
+  "size": 32,
+  "height": 64,
+  "rounds": 1,
+  "image_id": "a01e22a6",
+  "crc32": "32f70bed",
+  "sha256": "96151770262a11faaf959d0fe17f1f5c7f0ddb7939130a08160a92578d59fe9d",
+  "packets": 8,
+  "baud": 1000,
+  "carrier_hz": 1000000,
+  "hardware_channel": 2
+}
