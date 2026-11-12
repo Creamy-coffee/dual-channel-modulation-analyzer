@@ -178,6 +178,12 @@ waveform_demo --source demo          # 无板子时用合成信号看界面
 | [@Creamy-coffee](https://github.com/Creamy-coffee) | RK3506 板端应用：DRM/KMS 渲染、触摸输入、串口链路接收与带限重建 |
 | [@YiHuan15](https://github.com/YiHuan15) | FPGA RTL 与数字信号处理：双通道采集、FFT、锁相、谐波分析 |
 
+## AMD 自主选题技能包
+
+[FPGA 串口链路排查技能包](skill/README.md)包含 UART 分层排查、协作提示词、CRC32 脚本与可复跑样本。运行 `python skill/self_test.py` 可复验。
+
+本仓库沿用现有布局。按 AMD 指南 §3.3.5.4，`fpga/` 和 `src/` 对应设计源码，`fpga/build.tcl` 与 `fpga/build_evidence/` 对应构建与实现报告，`docs/` 对应设计、协作记录及验证材料，`skill/` 对应技能包。
+
 ## 文档索引
 
 | 文档 | 内容 |
