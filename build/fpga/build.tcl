@@ -1,4 +1,11 @@
 # Canonical source set. This stage produces a routed candidate, never a release bit.
+set required_vivado "2018.3"
+set actual_vivado [version -short]
+if {$actual_vivado ne $required_vivado} {
+    error "This build requires Vivado $required_vivado; found $actual_vivado."
+}
+puts [version]
+
 set here [file normalize [file dirname [info script]]]
 set root [file normalize $here/../../src/fpga]
 set ::env(UNIFIED_ID) contest_rebuild

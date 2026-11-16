@@ -50,7 +50,17 @@
 | Block RAM | 32×RAMB36 + 8×RAMB18，36 块等效（样点缓存、旋转因子、系数表、波形 LUT） |
 | 时序 | WNS +0.172 ns、WHS +0.010 ns，无 setup / hold 违例 |
 
-构建：`build/fpga/build.tcl` 提供完整构建脚本（Vivado 批处理建工程 → 综合 → 实现 → 出 bit）。
+### 复现 FPGA 构建
+
+验证环境：Xilinx Vivado v2018.3（Windows 64 位，Build 2405991），目标器件 `xc7a35tfgg484-2`。安装 Vivado 时选择 Artix-7 器件支持。在仓库根目录运行：
+
+```sh
+vivado -version
+vivado -mode batch -source build/fpga/build.tcl
+```
+
+[构建脚本](build/fpga/build.tcl)按脚本位置查找 `src/fpga/` 下的 RTL、初始化表和 XDC，并新建工程。候选 bit `rebuilt_a222905e.bit` 及最终时序、资源和 DRC 报告位于 `build/work/implementation/contest_rebuild/`。重建时记录仓库提交号，并核对实现报告和上板功能。
+
 2026-11-02 已在仓库外的独立副本上用同一套 Vivado 2018.3 跑通全流程：WNS +0.172 ns / WHS +0.010 ns
 （0 个失败端点）、20294 LUT / 13111 FF / 80 DSP / 36 BRAM、DRC 138 条全为 Warning 无 Error，
 与 `build/fpga/evidence/` 逐项一致。bit 的 SHA256 不会相同——Vivado 把构建时间写进 bit 头，
