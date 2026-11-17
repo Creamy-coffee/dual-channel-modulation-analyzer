@@ -52,7 +52,7 @@
 
 ### 复现 FPGA 构建
 
-验证环境：Xilinx Vivado v2018.3（Windows 64 位，Build 2405991），目标器件 `xc7a35tfgg484-2`。安装 Vivado 时选择 Artix-7 器件支持。在仓库根目录运行：
+验证环境：Vivado v2018.3（Windows 64 位，Build 2405991），目标器件 `xc7a35tfgg484-2`。安装 Vivado 时选择 Artix-7 器件支持。在仓库根目录运行：
 
 ```sh
 vivado -version
