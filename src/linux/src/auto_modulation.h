@@ -289,7 +289,11 @@ static inline void auto_mod_refine_tone(auto_mod_result_t *r,const float *i,cons
     int count=(int)ceil((am || interval==4?12.:5.)*fs/initial);
     if(count>n-interval)count=n-interval;
     if(count>2048)count=2048;
-    if(count*initial/fs<2.)return;
+    if(count*initial/fs<2.){
+        /* Too little captured trajectory to validate the analog hypothesis. */
+        r->kind=AUTO_MOD_WAIT;
+        return;
+    }
     const float gate=fmaxf(2.f,r->amplitude_mean*.1f);
     float values[2048];
     for(int k=0;k<count;k++){
@@ -313,10 +317,22 @@ static inline void auto_mod_refine_tone(auto_mod_result_t *r,const float *i,cons
             r->kind=AUTO_MOD_WAIT;
             return;
         }
-        if(fit.quality<AUTO_MOD_AM_FIT_MIN || fit.dc<=0.)return;
+        /* A digital envelope can have a periodic autocorrelation without
+         * being a sinusoidal AM message. Do not keep the provisional analog
+         * label when the original-rate tone fit rejects that hypothesis. */
+        if(fit.quality<AUTO_MOD_AM_FIT_MIN || fit.dc<=0.){
+            r->kind=AUTO_MOD_WAIT;
+            return;
+        }
         r->depth_pct=(float)depth;
     }else{
-        if(fit.quality<.85)return;
+        /* FSK and PSK phase jumps can also look periodic to a coarse
+         * frequency discriminator. Only retain FM/PM when a coherent tone
+         * actually explains the trajectory. */
+        if(fit.quality<.85){
+            r->kind=AUTO_MOD_WAIT;
+            return;
+        }
         const double peak=auto_mod_instant_peak(fit.peak,fit.rate,fs,interval);
         r->deviation_hz=(float)peak;
         r->phase_deviation_deg=(float)(peak/fit.rate*180./3.141592653589793);

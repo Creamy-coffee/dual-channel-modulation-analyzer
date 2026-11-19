@@ -62,10 +62,10 @@ static void qpsk_symbol(bpsk_decoder_t *r,float i,float q)
     r->wi[r->window_at]=i;r->wq[r->window_at]=q;
     r->window_at=(r->window_at+1)%64;
     if(r->window_n<64)r->window_n++;
-    r->recovered++;
     r->sym_i[r->sym_at]=i;r->sym_q[r->sym_at]=q;
     r->sym_at=(r->sym_at+1)%128;
     if(r->sym_n<128)r->sym_n++;
+    r->recovered++;
 }
 
 static void process(bpsk_decoder_t *r,float complex input)
@@ -153,17 +153,24 @@ void psk_probe_push(bpsk_decoder_t *r,const v32_ana_view_t *v,int baud,int order
     if(!r->coarse_ready)return;
     if(order==4){
         if(!r->window_n)return;
-        int occupancy[4]={0},transitions[2]={0,0};
+        int occupancy[4]={0},transitions[2]={0},last=-1;
+        double complex fourth=0.;
         float error=0.f;
-        int last=-1;
         for(int k=0;k<r->window_n;k++){
             const int at=(r->window_at-r->window_n+k+64)%64;
-            const float i=r->wi[at],q=r->wq[at];
-            const int quadrant=(i>=0)+2*(q>=0);
+            const double complex z=r->wi[at]+_Complex_I*r->wq[at];
+            fourth+=z*z*z*z;
+        }
+        const float origin=(float)(carg(-fourth)/4.);
+        const float complex derot=cexpf(-_Complex_I*origin);
+        for(int k=0;k<r->window_n;k++){
+            const int at=(r->window_at-r->window_n+k+64)%64;
+            const float complex z=(r->wi[at]+_Complex_I*r->wq[at])*derot;
+            const int quadrant=(crealf(z)>=0)+2*(cimagf(z)>=0);
             occupancy[quadrant]++;
-            if(k && quadrant!=last)transitions[k%2]++;
+            if(k && quadrant!=last)transitions[k&1]++;
             last=quadrant;
-            const float di=fabsf(i)-.70710678f,dq=fabsf(q)-.70710678f;
+            const float di=fabsf(crealf(z))-.70710678f,dq=fabsf(cimagf(z))-.70710678f;
             error+=di*di+dq*dq;
         }
         r->evm=sqrtf(error/r->window_n);

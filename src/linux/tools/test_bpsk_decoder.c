@@ -17,6 +17,20 @@ static v32_ana_view_t frame(unsigned fid,double phase,double cfo,float *filter)
     }
     return v;
 }
+static v32_ana_view_t qpsk_frame(unsigned fid,double phase,double cfo)
+{
+    static const char symbols[]="012302132031210230123102";
+    v32_ana_view_t v={0};v.valid=1;v.mode=4;v.kind=0;v.decim=4096;v.cfg_id=7;v.fcw=66076420;v.frame_id=fid;v.nvalid=256;
+    const double fs=65000000.0/4096;
+    for(int i=0;i<256;i++){
+        const double t=((fid-1)*256+i)/fs;
+        const int symbol=(int)floor(t*symbol_rate+timing_phase);
+        const int value=symbols[(symbol%24+24)%24]-'0';
+        const double a=2*PI*cfo*t+phase+PI/4+value*PI/2;
+        v.y[i]=(float)(100*cos(a));v.q[i]=(float)(100*sin(a));v.yvalid[i]=1;
+    }
+    return v;
+}
 int main(void)
 {
     unsigned s=127;for(int i=0;i<127;i++){pn[i]=s&1;s=(s>>1)|(((s^(s>>1))&1)<<6);}
@@ -37,5 +51,16 @@ int main(void)
     }
     bpsk_decoder_t r={0};float filter=-1;
     for(int fid=1;fid<=150;fid++){v32_ana_view_t v=frame(fid,0,40,&filter);for(int i=0;i<256;i++){v.y[i]=100;v.q[i]=0;}bpsk_push(&r,&v,1000,0,1);}assert(!r.locked && !r.bits);bpsk_reset(&r);
+    static const int qpsk_rates[]={500,1000,2000};
+    for(int rate=0;rate<3;rate++)for(int phase=0;phase<4;phase++)for(int freq=-1;freq<=1;freq++){
+        const int baud=qpsk_rates[rate];
+        symbol_rate=baud*(1+(phase-1.5)*.0002);timing_phase=.08+phase*.22;
+        bpsk_decoder_t q={0};
+        for(int fid=1;fid<=220;fid++){v32_ana_view_t v=qpsk_frame(fid,phase*.9,freq*145.7);psk_probe_push(&q,&v,baud,4);}
+        printf("qpsk baud=%d phase=%d freq=%d recovered=%llu locked=%d evm=%.3f\n",baud,phase,freq,q.recovered,q.locked,q.evm);fflush(stdout);
+        assert(q.locked && q.sym_n==128 && q.recovered>3000 && q.evm<.23f);
+        assert(fabs(q.cfo_hz-freq*145.7)<2);
+        bpsk_reset(&q);
+    }
     puts("BPSK_DECODER_PASS PN7_CFO_phase_timing_300ppm_duplicates_gaps_flags_invalid_CW");
 }

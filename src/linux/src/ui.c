@@ -6727,7 +6727,8 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
             r.depth_pct=sorted[am_count/2];
         }else am_count=0;
         const auto_binary_result_t next=auto_binary_analyze(i,q,n,fs,OOK_RATES,5,binary_features);
-        if(next.baud && next.baud==binary.baud && next.fsk==binary.fsk && previous_cfg==av->cfg_id){
+        if(next.baud && next.baud==binary.baud && next.fsk==binary.fsk &&
+           next.ask==binary.ask && next.levels==binary.levels && previous_cfg==av->cfg_id){
             if(binary_votes<3)binary_votes++;
         }else binary_votes=next.baud?1:0;
         binary=next;
@@ -6746,7 +6747,9 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
     const bool coherent_am=kind==AUTO_MOD_AM && r.tone_quality>=AUTO_MOD_AM_FIT_MIN;
     const bool coherent_angle=kind==AUTO_MOD_ANGLE && r.tone_quality>=.85f && r.modulation_hz>0.f;
     const bool use_psk=ready && psk && !coherent_am && !coherent_angle;
-    const bool use_binary=ready && binary_votes>=3 && !use_psk && !coherent_am && !coherent_angle;
+    /* A stable baud/level fit is stronger evidence of ASK/FSK than a
+     * provisional analog envelope or discriminator tone. */
+    const bool use_binary=ready && binary_votes>=3 && !use_psk;
     const enum angle_reference_kind ref_kind=mod_auto_reference(av,
         kind==AUTO_MOD_ANGLE && !use_binary && !use_psk,r.modulation_hz);
     lv_label_set_text(s_lbl_mst,!ready?"等待数据":identified?"分析有效":"信号已接收");
@@ -6781,17 +6784,22 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
         lv_label_set_text_fmt(s_lbl_modbaud,"~%.0f Hz",(double)r.modulation_hz);
     if(use_binary){
         lv_label_set_text(s_lbl_mst,"分析有效");
-        lv_label_set_text(s_lbl_m5,binary.fsk?"2FSK (Est.)":"OOK (Est.)");
+        lv_label_set_text(s_lbl_m5,binary.fsk?(binary.levels==3?"3FSK (Est.)":binary.levels==4?"4FSK (Est.)":"2FSK (Est.)"):
+                          binary.ask?"2ASK (Est.)":"OOK (Est.)");
         lv_label_set_text(s_lbl_modvalue_key,binary.fsk?"频差":"幅度");
         lv_label_set_text_fmt(s_lbl_m4,binary.fsk?"%.0f Hz":"%.1f DDC",(double)(binary.high-binary.low));
         lv_label_set_text(lv_obj_get_child(lv_obj_get_parent(s_lbl_modbaud),0),"符号率");
         lv_label_set_text_fmt(s_lbl_modbaud,"~%d Bd",binary.baud);
-        if(binary.fsk)
+        if(binary.fsk && binary.levels>2)
+            lv_label_set_text_fmt(s_lbl_ook_info,"%d levels\nspan %.0f Hz",binary.levels,(double)(binary.high-binary.low));
+        else if(binary.fsk)
             lv_label_set_text_fmt(s_lbl_ook_info,"f0 %.0f Hz\nf1 %.0f Hz",
                                   (double)av->center_hz+binary.low,(double)av->center_hz+binary.high);
+        else if(binary.ask)
+            lv_label_set_text_fmt(s_lbl_ook_info,"Low %.1f DDC\nHigh %.1f DDC",(double)binary.low,(double)binary.high);
         else
             lv_label_set_text_fmt(s_lbl_ook_info,"Off %.1f DDC\nOn %.1f DDC",(double)binary.low,(double)binary.high);
-        lv_label_set_text_fmt(s_lbl_ook_bits,"Bits %.16s\n%.16s",binary.bits,
+        lv_label_set_text_fmt(s_lbl_ook_bits,binary.levels>2?"Symbols %.16s\n%.16s":"Bits %.16s\n%.16s",binary.bits,
                               binary.bits+16);
     }
     lv_obj_add_flag(s_lbl_modhint,LV_OBJ_FLAG_HIDDEN);
