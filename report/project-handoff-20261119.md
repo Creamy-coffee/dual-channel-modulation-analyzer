@@ -63,7 +63,7 @@ dual-channel-modulation-analyzer/
 candidate/src/ui.c             主界面、示波器、频谱、锁相、调制、谐波
 candidate/src/bpsk_decoder.c  BPSK/QPSK 的符号同步与判决支撑
 candidate/src/bpsk_decoder.h
-candidate/src/v32_protocol.*  UART V32 帧解析和命令
+candidate/src/v32cap3.*       UART V32CAP3 帧解析和命令
 ```
 
 候选 `ui.c` 的 Git blob SHA 为 `00d9d73e7d5a1eeca4993c4ce560c777834e2748`，其内容比公开仓库旧版 UI 新，包含本轮自动示波、谐波自动跟随和 QPSK 符号点相关修改。
@@ -119,7 +119,7 @@ candidate/src/v32_protocol.*  UART V32 帧解析和命令
 
 ---
 
-## 4. 本轮重要代码改动（待同步远端）
+## 4. 本轮重要代码改动（已推送发布分支）
 
 ### A. 自动示波
 
@@ -209,32 +209,22 @@ USR_ACCESS 读回为 `4096ca03`。
 
 ---
 
-## 7. 提交到 GitHub 的具体操作
+## 7. GitHub 同步状态
 
-### 7.1 本轮应提交的文件
+### 7.1 已推送的内容
 
-将以下候选源码同步到公开仓库对应路径：
+已将屏端候选同步到 `release/screen-analysis-20261119`，提交 `618a5d5`：
 
-```text
-本机 candidate/src/ui.c
-  -> 远端 src/linux/src/ui.c
+本轮提交共更新 27 个路径，包括 UI、符号恢复、频谱/示波器辅助模块、字体和构建配置。分支中的 49 个 Linux 源文件与候选目录按 LF/CRLF 归一化后逐文件一致。
 
-本机 candidate/src/bpsk_decoder.c
-  -> 远端 src/linux/src/bpsk_decoder.c
+本轮提交还包含与候选文件配套的辅助模块/字体改动，以及：
 
-本机 candidate/src/bpsk_decoder.h（如与远端不同，再一并同步）
-```
+`report/release-20261119-screen-analysis.md`，记录功能范围、验证依据和未覆盖项。
 
-建议新增：
-
-`report/release-20261119-screen-analysis.md`
-
-内容可概括本文件第 4、5、6 节：已完成功能、实测范围、已知边界、不可宣称事项。
-
-### 7.2 推荐提交信息
+### 7.2 提交说明
 
 ```text
-feat(linux): improve auto scope, harmonic follow and recovered constellation
+feat(linux): improve scope analysis and symbol views
 ```
 
 提交说明：
@@ -246,11 +236,11 @@ feat(linux): improve auto scope, harmonic follow and recovered constellation
 - documents current validation scope and known modulation limits
 ```
 
-### 7.3 当前提交受阻原因
+### 7.3 后续状态
 
-- GitHub 连接器可读远端，但创建分支/更新文件时返回 403 `Resource not accessible by integration`。
-- 本机 Git 远端地址已设置为公开仓库，但 fetch 时出现 GitHub 连接重置，尚未完成远端同步。
-- Chrome 已打开该仓库的 Branches 页面，通常可用已登录网页账号提交。若其他 agent 接手，优先使用已登录 GitHub 网页或修复本机网络/凭据后使用 Git 推送。
+- 该分支已推送到公开仓库，并跟踪 `origin/release/screen-analysis-20261119`。对应提交：`618a5d5`。
+- `main` 未改动；需要通过 Pull Request 审阅后再决定是否合并。
+- `report/release-20261119-screen-analysis.md` 记录了当前构建证据和验证边界。
 
 绝不能把 `firmware/experimental/continuous_roll_20261118` 这类已回退、未验收实验目录写成正式发布能力。
 

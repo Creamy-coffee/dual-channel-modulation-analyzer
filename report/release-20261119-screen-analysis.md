@@ -1,0 +1,21 @@
+# Linux 屏端分析界面更新（2026-11-19）
+
+本次更新位于 `release/screen-analysis-20261119`，提交 `618a5d5`。更新只进入发布分支，尚未合并到 `main`。
+
+## 改动
+
+- 自动示波按当前触发通道选择测量对象，依据频率调整时基并按峰峰值设置垂直量程；界面显示自动作用通道。
+- 频谱页在稳定基频成立后启动谐波捕获，离开频谱页后停止，避免使用陈旧结果。
+- BPSK/QPSK 符号点仅在符号同步锁定后显示；未锁定时显示等待状态，不将原始 I/Q 轨迹称为星座图。
+- 同步了 `src/linux/src/` 下候选源码及相关头文件、字体与构建配置。发布分支中的 49 个 Linux 源文件与候选源码按 LF/CRLF 归一化后逐文件一致。
+
+## 验证依据与边界
+
+- 本机候选目录的历史 ARM 构建日志 `firmware/experimental/auto_modulation_20261113/arm_build/manual_psk_fix_build.log`（2026-11-18）记录 `waveform_demo` 构建完成。本次同步会话未重跑构建：Windows 的 `wsl.exe` 提示没有已安装的 Linux 发行版，因此这不是提交后的新构建结果。
+- 5 MHz 正弦下的谐波自动跟随已有功能记录；方波和含谐波输入仍需实屏回归。
+- QPSK 的历史 I/Q 回放曾在 2000 Bd 候选设置下锁定。这不替代发生器、ADC、FPGA 和屏幕的整机误码率测试；QPSK 位映射、前导、相位旋转和 BER 尚未验收。
+- 自动示波低频、弱信号及方波回归未覆盖；未知数字调制的全制式自动识别也不属于本次已验证能力。
+
+## 后续审阅
+
+Pull Request：<https://github.com/Creamy-coffee/dual-channel-modulation-analyzer/pull/new/release/screen-analysis-20261119>
