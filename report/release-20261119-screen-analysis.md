@@ -1,6 +1,6 @@
 # Linux 屏端分析界面更新（2026-11-19）
 
-本次更新位于 `release/screen-analysis-20261119`，提交 `618a5d5`。更新只进入发布分支，尚未合并到 `main`。
+功能更新提交为 `618a5d5`，随后文档状态提交为 `7975d18`。该提交线已从原 `main`（`aab902e`）快进同步到 `main`；发布分支 `release/screen-analysis-20261119` 保留用于追踪。
 
 ## 改动
 
@@ -16,6 +16,6 @@
 - QPSK 的历史 I/Q 回放曾在 2000 Bd 候选设置下锁定。这不替代发生器、ADC、FPGA 和屏幕的整机误码率测试；QPSK 位映射、前导、相位旋转和 BER 尚未验收。
 - 自动示波低频、弱信号及方波回归未覆盖；未知数字调制的全制式自动识别也不属于本次已验证能力。
 
-## 后续审阅
+## 仓库状态
 
-Pull Request：<https://github.com/Creamy-coffee/dual-channel-modulation-analyzer/pull/new/release/screen-analysis-20261119>
+远端 `main` 已从 `aab902e` 快进合入此发布提交线，无需再为这组提交创建 Pull Request。

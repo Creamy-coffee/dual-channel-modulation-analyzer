@@ -49,7 +49,7 @@ dual-channel-modulation-analyzer/
 
 `D:\FPGA_bag\Project\signal_analyzer_base_v1\output\submission\github_layout_staged`
 
-该目录的 `src/linux/src/ui.c` 当前等同于远端 `main` 的旧版 UI 文件（远端 blob SHA 为 `d3853eea394957d164562674b9c2f26b20a568dd`）。
+该目录的 `src/linux/src/ui.c` 仍是同步前的旧版 UI 文件（远端旧 blob SHA 为 `d3853eea394957d164562674b9c2f26b20a568dd`）；它是对照镜像，不是当前 `main` 的工作副本。
 
 ### 2.2 当前屏端候选源码
 
@@ -238,8 +238,8 @@ feat(linux): improve scope analysis and symbol views
 
 ### 7.3 后续状态
 
-- 该分支已推送到公开仓库，并跟踪 `origin/release/screen-analysis-20261119`。对应提交：`618a5d5`。
-- `main` 未改动；需要通过 Pull Request 审阅后再决定是否合并。
+- 该分支已推送到公开仓库，并跟踪 `origin/release/screen-analysis-20261119`。功能提交为 `618a5d5`，文档状态提交为 `7975d18`。
+- 远端 `main` 已从 `aab902e` 快进合入此发布提交线；本轮无需 Pull Request。
 - `report/release-20261119-screen-analysis.md` 记录了当前构建证据和验证边界。
 
 绝不能把 `firmware/experimental/continuous_roll_20261118` 这类已回退、未验收实验目录写成正式发布能力。
