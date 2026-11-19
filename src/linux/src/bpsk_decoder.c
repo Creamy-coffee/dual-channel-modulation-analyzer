@@ -62,10 +62,10 @@ static void qpsk_symbol(bpsk_decoder_t *r,float i,float q)
     r->wi[r->window_at]=i;r->wq[r->window_at]=q;
     r->window_at=(r->window_at+1)%64;
     if(r->window_n<64)r->window_n++;
+    r->recovered++;
     r->sym_i[r->sym_at]=i;r->sym_q[r->sym_at]=q;
     r->sym_at=(r->sym_at+1)%128;
     if(r->sym_n<128)r->sym_n++;
-    r->recovered++;
 }
 
 static void process(bpsk_decoder_t *r,float complex input)

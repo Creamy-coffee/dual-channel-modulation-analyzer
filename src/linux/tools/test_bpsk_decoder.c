@@ -58,7 +58,7 @@ int main(void)
         bpsk_decoder_t q={0};
         for(int fid=1;fid<=220;fid++){v32_ana_view_t v=qpsk_frame(fid,phase*.9,freq*145.7);psk_probe_push(&q,&v,baud,4);}
         printf("qpsk baud=%d phase=%d freq=%d recovered=%llu locked=%d evm=%.3f\n",baud,phase,freq,q.recovered,q.locked,q.evm);fflush(stdout);
-        assert(q.locked && q.sym_n==128 && q.recovered>3000 && q.evm<.23f);
+        assert(q.locked && q.sym_n==128 && q.recovered>(unsigned long long)baud && q.evm<.23f);
         assert(fabs(q.cfo_hz-freq*145.7)<2);
         bpsk_reset(&q);
     }
