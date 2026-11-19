@@ -16,6 +16,7 @@
  */
 #ifndef WAVE_SOURCE_H
 #define WAVE_SOURCE_H
+#include <stdint.h>
 
 /* 帧缓冲容量上限。取所有数据源里最大的那个 —— V32CAP3 一帧 4096 点。
  * 调用方按这个尺寸开数组就够用，不用管当前源实际多少点。 */
@@ -69,5 +70,8 @@ void wave_source_v32_set_baud(int baud);
 int  wave_source_v32_get_baud(void);
 /* UI-thread cached RAW frame rate, before integer-Hz rounding. 0 if unavailable. */
 double wave_source_v32_frame_rate_hz(void);
+/* UI transaction: condensed view and full samples come from one RAM snapshot. */
+int wave_source_v32_begin_frame(uint32_t *fid);
+void wave_source_v32_end_frame(void);
 
 #endif /* WAVE_SOURCE_H */

@@ -25,4 +25,17 @@ static unsigned harmonic_confirm(harmonic_confidence *s,const v32_harmonic_measu
     }
     return s->confirmed;
 }
+
+/* Keep the full H2-H5 result. Allow unresolved orders only when their
+ * combined power is at most 1% of the confirmed harmonic power. */
+static int harmonic_thd_confirmed(const v32_harmonic_measurement *m,unsigned confirmed)
+{
+    if(!m->thd_valid || !(confirmed&1u))return 0;
+    uint64_t stable_power=0,unconfirmed_power=0;
+    for(unsigned i=1;i<5;i++){
+        if(confirmed&(1u<<i))stable_power+=m->signal_x6[i];
+        else unconfirmed_power+=m->signal_x6[i];
+    }
+    return stable_power && unconfirmed_power<=stable_power/100u;
+}
 #endif

@@ -2,6 +2,15 @@
 #define SCOPE_ACQUISITION_H
 #include <math.h>
 
+/* Keep a quarter of the contiguous record available for trigger positioning. */
+static inline int scope_timebase_decimation(double adc_fs,int points,double window_s,int max_dec)
+{
+    int dec=1;
+    const int usable=points-points/4;
+    while(dec<max_dec && window_s*adc_fs>(usable-1.0)*dec)dec*=2;
+    return dec;
+}
+
 /* Prefer independently measured carrier frequency to a decimated alias.
    Manual timebase remains manual; only undo an unsafe sampling rate. */
 static inline int scope_decimation_target(double adc_fs,int points,int current,
@@ -18,7 +27,10 @@ static inline int scope_decimation_target(double adc_fs,int points,int current,
     if(!trusted && low_ac)return current;
     int want=current;double periods=carrier*points/fs;
     if(!trusted && margin<15.f){if(want<256)want<<=1;return want;}
-    while(periods<2 && want<256){want<<=1;periods*=2;}
+    /* More complete cycles reduce the variance of low-frequency fits.
+       Extend acquisition only when the independent carrier is qualified. */
+    const int minimum_periods=trusted?8:2;
+    while(periods<minimum_periods && want<256){want<<=1;periods*=2;}
     while(periods>30 && want>1){want>>=1;periods*=.5;}
     /* Two periods alone cannot guarantee that the carrier is below Nyquist. */
     while(want>1 && carrier>=.4*adc_fs/want)want>>=1;

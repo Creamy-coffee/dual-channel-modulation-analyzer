@@ -10,7 +10,29 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/statvfs.h>
 #define RAW_CAPTURE_QUEUE (1024u*1024u)
+/* Leave space for the OS and other applications. Flash capacity is not the
+ * free capture budget. Apply this equally to tmpfs and persistent storage. */
+#define RAW_CAPTURE_RESERVE (8u*1024u*1024u)
+
+static int raw_capture_space_ok(uint64_t available,uint64_t request)
+{
+    /* Subtraction after the range check avoids overflow for large requests. */
+    return available>=RAW_CAPTURE_RESERVE && request<=available-RAW_CAPTURE_RESERVE;
+}
+
+static int raw_capture_check_space(int fd,size_t request)
+{
+    struct statvfs s;
+    if(fstatvfs(fd,&s)<0)return -1;
+    uint64_t unit=s.f_frsize?s.f_frsize:s.f_bsize;
+    if(!unit){errno=EIO;return -1;}
+    uint64_t blocks=s.f_bavail;
+    uint64_t available=blocks>UINT64_MAX/unit?UINT64_MAX:blocks*unit;
+    if(!raw_capture_space_ok(available,request)){errno=ENOSPC;return -1;}
+    return 0;
+}
 typedef struct {
     pthread_mutex_t lock;
     pthread_cond_t ready;
@@ -35,7 +57,10 @@ static void *raw_capture_writer(void *arg)
         pthread_mutex_unlock(&c->lock);
         size_t at=0;
         while(at<n) {
-            ssize_t w=write(c->fd,block+at,n-at);
+            /* A competing process can consume space after start. Stop rather
+             * than fill the filesystem; preserve the exact recorded prefix.
+             * This check stays on the writer, never the UART reader. */
+            ssize_t w=raw_capture_check_space(c->fd,n-at)<0?-1:write(c->fd,block+at,n-at);
             if(w<0 && errno==EINTR)continue;
             if(w<=0) {
                 pthread_mutex_lock(&c->lock);
@@ -59,6 +84,9 @@ static int raw_capture_start(raw_capture_t *c,const char *path,size_t limit)
     /* Never overwrite an earlier capture or follow an existing destination. */
     c->fd=open(path,O_WRONLY|O_CREAT|O_EXCL,0600);
     if(c->fd<0)return -1;
+    if(raw_capture_check_space(c->fd,limit)<0){
+        int e=errno;close(c->fd);unlink(path);errno=e;return -1;
+    }
     c->queue=malloc(RAW_CAPTURE_QUEUE);
     if(!c->queue){close(c->fd);errno=ENOMEM;return -1;}
     int e=pthread_mutex_init(&c->lock,NULL);

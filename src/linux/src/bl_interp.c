@@ -16,6 +16,11 @@
 
 #include <math.h>
 
+int bl_support_radius(void)
+{
+    return BL_DELAY + 1;
+}
+
 void bl_resample(const float *x, int n, float *y, int nout, float t0, float dt,
                  bool limit_overshoot)
 {
@@ -23,6 +28,13 @@ void bl_resample(const float *x, int n, float *y, int nout, float t0, float dt,
 
     for (int i = 0; i < nout; i++) {
         const float t = t0 + dt * (float)i;
+        /* No acquired sample exists outside this record. Mark a gap instead
+         * of extrapolating an invented ramp from the first/last two samples.
+         * Check before float-to-int conversion, also covering NaN/Inf. */
+        if(!isfinite(t) || t<0.f || t>(float)(n-1)) {
+            y[i]=NAN;
+            continue;
+        }
 
         /* 换到「滤波器中心」坐标，再拆成整数位置 + 相位 */
         const float u = t + (float)BL_DELAY;

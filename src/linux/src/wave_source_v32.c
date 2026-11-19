@@ -26,6 +26,19 @@ static int         s_baud = V32_BAUD_DEFAULT;
 static v32_frame_t s_cur;
 static int         s_have;
 static int         s_inited;
+static int         s_frame_pinned;
+
+int wave_source_v32_begin_frame(uint32_t *fid)
+{
+    v32_frame_t frame;
+    if(v32_copy_latest(&frame)){s_cur=frame;s_have=1;}
+    if(s_have && s_cur.decimation)
+        wave_source_v32.sample_rate=(int)(V32_ADC_FS_HZ/s_cur.decimation);
+    s_frame_pinned=1;
+    if(s_have && fid)*fid=s_cur.frame_id;
+    return s_have;
+}
+void wave_source_v32_end_frame(void){s_frame_pinned=0;}
 
 void wave_source_v32_set_spec(const char *spec)
 {
@@ -104,6 +117,9 @@ static int v32_src_init(void)
     } else {
         const char *dev = (strncmp(spec, "uart:", 5) == 0) ? (spec + 5) : spec;
         rc = v32_init_uart(dev, s_baud);
+        /* Clear modulation left active when only the screen restarts. */
+        if (rc == 0 && v32_cmd_mode(0) != 0)
+            fprintf(stderr, "[v32] Could not disable modulation analysis on startup\n");
     }
 
     if (rc != 0) {
@@ -126,9 +142,10 @@ static int v32_src_read2(float *ch0, float *ch1, int len)
 
     /* 有新帧才刷新缓存；没有新帧时继续吐上一帧，保证两个通道读到的是同一份数据 */
     v32_frame_t tmp;
-    if (v32_copy_latest(&tmp)) {
+    if (!s_frame_pinned && v32_copy_latest(&tmp)) {
         s_cur  = tmp;
         s_have = 1;
+        if(s_cur.decimation)wave_source_v32.sample_rate=(int)(V32_ADC_FS_HZ/s_cur.decimation);
     }
     if (!s_have) return 0;
 

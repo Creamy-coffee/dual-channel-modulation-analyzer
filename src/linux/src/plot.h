@@ -65,6 +65,8 @@ void plot_set_grid(lv_obj_t *plot, int divx, int divy, bool center_dash);
 void plot_set_trace(lv_obj_t *plot, int idx, const float *y, int n,
                     lv_color_t color, int32_t width);
 void plot_hide_trace(lv_obj_t *plot, int idx);
+/* Only enable for uniformly spaced samples, never for peak buckets. */
+void plot_set_scope_uniform(lv_obj_t *plot, bool uniform);
 
 /* ---- SCOPE 专用：触发线 ----
  * plot_set_trigger      : 竖直的位置标记（FFT 页还在用；SCOPE 页画成

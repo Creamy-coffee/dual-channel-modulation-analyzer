@@ -47,6 +47,7 @@ typedef struct {
     int fft_positions_n;
     float fft_nyquist;
 
+    bool  scope_uniform;
     bool  trig_vis;
     bool voltage_ref,zero_visible[2];
     int voltage_channel;
@@ -230,6 +231,14 @@ void plot_set_trace(lv_obj_t *plot, int idx, const float *y, int n,
 void plot_hide_trace(lv_obj_t *plot, int idx)
 {
     if(set_trace(plot, idx, NULL, 0, V32_C_TEXT, 1, false))lv_obj_invalidate(plot);
+}
+
+void plot_set_scope_uniform(lv_obj_t *plot, bool uniform)
+{
+    plot_t *p=PLOT_OF(plot);
+    if(!p || p->scope_uniform==uniform)return;
+    p->scope_uniform=uniform;
+    lv_obj_invalidate(plot);
 }
 
 void plot_set_trigger(lv_obj_t *plot, bool vis, float x)
@@ -558,6 +567,55 @@ static void draw_one_trace(lv_layer_t *layer, plot_t *p, int ti,
     const int32_t xspan = w - 1;
     const int32_t yspan = h - 1;
 
+    if(p->mode==PLOT_SCOPE && p->scope_uniform && t!=&p->tr[2] &&
+       t->n>w && w>1){
+        /* Evaluate the uniformly spaced trace at the pixel center. Taking
+         * the first sample rounded into each pixel moves steep edges by
+         * a varying fraction of a column. */
+        bool anchored=false;
+        for(int x=0;x<w;x++){
+            const int position=x*nm1;
+            const int a=position/xspan;
+            const int fraction=position%xspan;
+            const float left=t->y[a],right=fraction?t->y[a+1]:left;
+            if(!isfinite(left) || !isfinite(right)){anchored=false;continue;}
+            const float value=left+(right-left)*fraction/xspan;
+            const int y=y0+yspan-(int)lroundf(fmaxf(0.f,fminf(1.f,value))*yspan);
+            if(anchored){
+                ld.p2.x=x0+x;ld.p2.y=y;
+                lv_draw_line(layer,&ld);
+            }
+            ld.p1.x=x0+x;ld.p1.y=y;
+            anchored=true;
+        }
+        return;
+    }
+
+    /* Dense time histories need peak envelopes, not strided samples which alias. */
+    if(p->mode==PLOT_HIST && t->n>w && w>1) {
+        int previous_x=-1,previous_y=0;
+        for(int x=0;x<w;x++) {
+            int a=(int)((int64_t)x*t->n/w),b=(int)((int64_t)(x+1)*t->n/w);
+            float lo=INFINITY,hi=-INFINITY;bool gap=false;
+            for(int k=a;k<b;k++) {
+                if(!isfinite(t->y[k])){gap=true;break;}
+                if(t->y[k]<lo)lo=t->y[k];if(t->y[k]>hi)hi=t->y[k];
+            }
+            if(gap || !isfinite(lo)){previous_x=-1;continue;}
+            int first_y=y0+yspan-(int32_t)(fmaxf(0.f,fminf(1.f,t->y[a]))*yspan);
+            if(previous_x>=0){
+                ld.p1.x=x0+previous_x;ld.p1.y=previous_y;
+                ld.p2.x=x0+x;ld.p2.y=first_y;lv_draw_line(layer,&ld);
+            }
+            lo=fmaxf(0.f,fminf(1.f,lo));hi=fmaxf(0.f,fminf(1.f,hi));
+            ld.p1.x=ld.p2.x=x0+x;ld.p1.y=y0+yspan-(int32_t)(lo*yspan);
+            ld.p2.y=y0+yspan-(int32_t)(hi*yspan);lv_draw_line(layer,&ld);
+            previous_x=x;
+            previous_y=y0+yspan-(int32_t)(fmaxf(0.f,fminf(1.f,t->y[b-1]))*yspan);
+        }
+        return;
+    }
+
     /*
      * 亚像素步进注意：cx==px 时(多点映射同一像素列)只考察不画,
      * px/py **保持不动** —— 若跟着推进 py, 中间样点的几何丢失,
@@ -615,6 +673,8 @@ static void draw_iq(lv_layer_t *layer, plot_t *p,
         lv_draw_arc(layer, &ad);
     }
 
+    text(layer, cx + 8, y0 + 6, "Q", V32_C_CH1, V32_FONT_SMALL);
+    text(layer, x0 + w - 20, cy - 16, "I", V32_C_CH1, V32_FONT_SMALL);
     if(!p->iq_valid){text(layer,cx-45,cy-10,"NO PHASE",V32_C_NOTE,V32_FONT_SMALL);return;}
     /* 矢量：JS 是 ctx.lineTo(cx + cos(θ)*r*.82, cy - sin(θ)*r*.82) */
     const float rad = p->iq_phase * 3.14159265f / 180.f;
@@ -625,16 +685,16 @@ static void draw_iq(lv_layer_t *layer, plot_t *p,
     lv_draw_line_dsc_t ld;
     lv_draw_line_dsc_init(&ld);
     ld.color = V32_C_CH1;
+    ld.width = 1;
+    line(layer, &ld, cx, cy, cx+vr, cy);
+    ld.color = V32_C_CH2;
     ld.width = 3;
     ld.opa   = LV_OPA_COVER;
     ld.round_start = 1;
     ld.round_end   = 1;
     line(layer, &ld, cx, cy, vx, vy);
 
-    /* 轴标注：Q 在上方中间，I 在右侧。参考稿是 ctx.fillText 的 baseline 坐标，
-     * 这里换算成左上角坐标，差几像素不影响观感。 */
-    text(layer, cx + 8, y0 + 6, "Q", V32_C_CH1, V32_FONT_SMALL);
-    text(layer, x0 + w - 20, cy - 16, "I", V32_C_CH1, V32_FONT_SMALL);
+    text(layer,x0+8,y0+h-24,"CH1 = 0 deg; CH2 relative",V32_C_NOTE,V32_FONT_SMALL);
 }
 
 /* 测量光标：洋红虚线。用短线段拼虚线（这版 LVGL 的 dash 支持不稳）。 */

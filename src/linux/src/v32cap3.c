@@ -21,7 +21,12 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <poll.h>
+#include <stddef.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include "raw_capture.h"
+#include "record_history.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,6 +58,35 @@ static v32_stats_t s_st;
 static v32_frame_t s_stage;      /* 解析中，不受锁保护 */
 static v32_frame_t s_latest;     /* 受 s_lock 保护 */
 static int         s_new;
+static record_history_t s_history;
+
+int v32_history_copy(unsigned age,v32_frame_t *out,uint64_t *serial,uint32_t *received_ms)
+{
+    record_entry_t e;
+    pthread_mutex_lock(&s_lock);
+    int ok=record_history_copy(&s_history,age,&e);
+    pthread_mutex_unlock(&s_lock);
+    if(ok){if(out)*out=e.frame;if(serial)*serial=e.serial;if(received_ms)*received_ms=e.received_ms;}
+    return ok;
+}
+unsigned v32_history_count(void)
+{
+    pthread_mutex_lock(&s_lock);
+    unsigned n=(unsigned)s_history.count;
+    pthread_mutex_unlock(&s_lock);
+    return n;
+}
+int v32_history_copy_serial(uint64_t wanted,v32_frame_t *out,uint64_t *serial)
+{
+    record_entry_t e;int ok=0;
+    pthread_mutex_lock(&s_lock);
+    if(!wanted)wanted=s_history.total;
+    if(wanted && wanted<=s_history.total && s_history.total-wanted<s_history.count)
+        ok=record_history_copy(&s_history,(size_t)(s_history.total-wanted),&e);
+    pthread_mutex_unlock(&s_lock);
+    if(ok){if(out)*out=e.frame;if(serial)*serial=e.serial;}
+    return ok;
+}
 
 static int         s_fd = -1;
 static pthread_t   s_th;
@@ -78,6 +112,70 @@ static uint32_t mono_ms(void)
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u);
+}
+
+/* Local IPC for the PC bridge via ADB. The UART and UI never wait for it. */
+static int s_export_stop[2]={-1,-1};
+static pthread_t s_export_thread;
+
+static void export_le(uint8_t *dst,uint64_t value,unsigned size)
+{
+    for(unsigned i=0;i<size;i++){dst[i]=(uint8_t)value;value>>=8;}
+}
+
+static size_t export_packet(uint8_t *packet,const v32_frame_t *frame)
+{
+    memcpy(packet,s_magic,V32_MAGIC_LEN);
+    export_le(packet+8,V32_VERSION,4);
+    export_le(packet+12,frame->frame_id,4);
+    export_le(packet+16,V32_ADC_FS_HZ,4);
+    export_le(packet+20,frame->decimation,4);
+    export_le(packet+24,(unsigned)frame->n,4);
+    export_le(packet+28,frame->flags,4);
+    export_le(packet+32,frame->start_index,8);
+    for(int i=0;i<frame->n;i++){
+        export_le(packet+40+4*i,(uint16_t)frame->ch0[i],2);
+        export_le(packet+42+4*i,(uint16_t)frame->ch1[i],2);
+    }
+    const size_t bytes=40u+4u*(unsigned)frame->n;
+    export_le(packet+bytes,frame->crc32,4);
+    return bytes+4;
+}
+
+static void *export_main(void *arg)
+{
+    (void)arg;
+    const int server=socket(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0);
+    if(server<0)return NULL;
+    struct sockaddr_un addr={.sun_family=AF_UNIX,.sun_path="\0scope_raw_live"};
+    if(bind(server,(struct sockaddr *)&addr,offsetof(struct sockaddr_un,sun_path)+sizeof("scope_raw_live"))<0 ||
+       listen(server,1)<0){
+        fprintf(stderr,"[live-export] socket setup: %s\n",strerror(errno));
+        close(server);
+        return NULL;
+    }
+    struct pollfd waiters[2]={{s_export_stop[0],POLLIN,0},{server,POLLIN,0}};
+    for(;;){
+        if(poll(waiters,2,-1)<0){if(errno==EINTR)continue;break;}
+        if(waiters[0].revents)break;
+        int client=accept(server,NULL,NULL);
+        if(client<0)continue;
+        uint64_t previous=0;
+        struct pollfd link[2]={{s_export_stop[0],POLLIN,0},{client,POLLIN,0}};
+        while(poll(link,2,100)==0){
+            v32_frame_t frame;
+            uint64_t serial;
+            uint32_t received;
+            if(!v32_history_copy(0,&frame,&serial,&received) || serial==previous || mono_ms()-received>1000u)continue;
+            uint8_t packet[V32_PACKET_BYTES];
+            size_t size=export_packet(packet,&frame);
+            if(send(client,packet,size,MSG_DONTWAIT|MSG_NOSIGNAL)!=(ssize_t)size)break;
+            previous=serial;
+        }
+        close(client);
+    }
+    close(server);
+    return NULL;
 }
 
 static v32_harmonic_view_t s_harmonic;
@@ -376,6 +474,14 @@ static uint32_t       s_ana_ms;
 static v32_ana_view_t s_ana_queue[ANA_QUEUE_CAPACITY];
 static uint32_t s_ana_queue_ms[ANA_QUEUE_CAPACITY];
 static unsigned s_ana_head, s_ana_count;
+static void (*s_ana_observer)(const v32_ana_view_t *);
+
+void v32_set_ana_observer(void (*observer)(const v32_ana_view_t *))
+{
+    pthread_mutex_lock(&s_lock);
+    s_ana_observer=observer;
+    pthread_mutex_unlock(&s_lock);
+}
 
 /*
  * kind 样点解码（ANALYSIS_PROTOCOL.md）：
@@ -453,7 +559,9 @@ static void handle_ana(const uint8_t *p)
     }
     unsigned tail=(s_ana_head+s_ana_count)%ANA_QUEUE_CAPACITY;
     s_ana_queue[tail]=v;s_ana_queue_ms[tail]=received_ms;s_ana_count++;
+    void (*observer)(const v32_ana_view_t *)=s_ana_observer;
     pthread_mutex_unlock(&s_lock);
+    if(observer)observer(&v);
 
     {
         static int dbg = -1;
@@ -834,12 +942,9 @@ static void v32_feed(const uint8_t *data, int n)
         s_stage.n           = (int)pts;
         s_last_dec          = (int)dec;
 
-        /* 抽取倍数变了就同步采样率（时基/FFT 都读它） */
-        {
-            const int rate = (int)(fs / dec);
-            if (rate > 0 && wave_source_v32.sample_rate != rate)
-                wave_source_v32.sample_rate = rate;
-        }
+        /* Sampling metadata travels with the record. Do not change the UI's
+         * displayed rate from the UART thread: the screen may be paused on an
+         * older record, or computing that record while this one arrives. */
 
         s_last_wave_fid   = fid;
         s_last_wave_start = start_idx;
@@ -854,6 +959,7 @@ static void v32_feed(const uint8_t *data, int n)
 
         pthread_mutex_lock(&s_lock);
         s_latest = s_stage;
+        record_history_push(&s_history,&s_stage,mono_ms());
         s_new    = 1;
         pthread_mutex_unlock(&s_lock);
     }
@@ -901,7 +1007,10 @@ static void *reader_main(void *arg)
                         pthread_mutex_lock(&s_lock);
                         frame_points=s_latest.n;
                         frame_dec=(int)s_latest.decimation;
+                        unsigned history_count=(unsigned)s_history.count;
+                        uint64_t history_total=s_history.total;
                         pthread_mutex_unlock(&s_lock);
+                        fprintf(stderr,"[history] retained=%u total=%llu\n",history_count,(unsigned long long)history_total);
                         fprintf(stderr, "[rx] 帧=%u fps=%.1f dec=%d fn=%d 头错=%u CRC错=%u 序列错=%u 样点错=%u EAGAIN=%u 丢弃字节=%u 尾巴=%u\n",
                                 s_st.frames_ok, s_st.fps_milli / 1000.0,
                                 frame_dec,frame_points,
@@ -1078,13 +1187,26 @@ int v32_init_uart(const char *dev, int baud)
     clock_gettime(CLOCK_MONOTONIC, &s_fps_t0);
 
     s_stop = 0;
+    /* Allocate once before the reader starts. Allocation failure only disables
+     * history; normal acquisition remains available. No Flash writes. */
+    if(!s_history.entries){
+        int ready=record_history_init(&s_history,RECORD_HISTORY_BUDGET);
+        fprintf(stderr,"[history] ready=%d slots=%zu bytes=%zu separate_records=1\n",
+            ready,s_history.capacity,s_history.capacity*sizeof(record_entry_t));
+    }
     if (pthread_create(&s_th, NULL, reader_main, NULL) != 0) {
         snprintf(s_err, sizeof s_err, "pthread_create 失败");
         close(s_fd);
         s_fd = -1;
+        record_history_free(&s_history);
         return -1;
     }
     s_th_running = 1;
+    if(s_history.entries && pipe(s_export_stop)==0){
+        if(pthread_create(&s_export_thread,NULL,export_main,NULL)!=0){
+            close(s_export_stop[0]);close(s_export_stop[1]);s_export_stop[0]=-1;
+        }
+    }
     return 0;
 }
 
@@ -1123,6 +1245,11 @@ int v32_init_file(const char *path)
 
 void v32_shutdown(void)
 {
+    if(s_export_stop[0]>=0){
+        close(s_export_stop[1]);
+        pthread_join(s_export_thread,NULL);
+        close(s_export_stop[0]);s_export_stop[0]=-1;
+    }
     if (s_th_running) {
         s_stop = 1;
         pthread_join(s_th, NULL);
@@ -1132,6 +1259,9 @@ void v32_shutdown(void)
         close(s_fd);
         s_fd = -1;
     }
+    pthread_mutex_lock(&s_lock);
+    record_history_free(&s_history);
+    pthread_mutex_unlock(&s_lock);
 }
 
 int v32_copy_latest(v32_frame_t *out)

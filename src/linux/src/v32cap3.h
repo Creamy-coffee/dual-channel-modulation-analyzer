@@ -113,6 +113,11 @@ void v32_shutdown(void);
 /* 取最新一帧。返回 1 = 拿到新帧（自上次调用之后有更新），0 = 没有新数据。
  * 调用方给 out 传 NULL 时只查询是否有新帧，不拷贝。 */
 int  v32_copy_latest(v32_frame_t *out);
+/* Bounded RAM history: age 0=newest. Records MUST NOT be concatenated as
+ * continuous acquisition. received_ms is host arrival, not sample timing. */
+int v32_history_copy(unsigned age,v32_frame_t *out,uint64_t *serial,uint32_t *received_ms);
+unsigned v32_history_count(void);
+int v32_history_copy_serial(uint64_t wanted,v32_frame_t *out,uint64_t *serial);
 
 /*
  * 抽取倍数的**反向通道**（主机 -> FPGA）。
@@ -320,6 +325,7 @@ typedef struct {
 } v32_ana_view_t;
 
 int v32_get_ana(v32_ana_view_t *out);
+void v32_set_ana_observer(void (*observer)(const v32_ana_view_t *));
 
 /* RAW 时基焦点：A5 E5 f，f=0/1/2 = CH0/CH1/自动（不改分析通道，不递增 cfg_id） */
 int v32_cmd_focus(int f);

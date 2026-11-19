@@ -57,6 +57,17 @@ static void trace_erasure(const bpsk_decoder_t *r,const char *reason,float i,flo
     if(enabled && !strcmp(enabled,"1"))
         fprintf(stderr,"[bpsk-erasure] cfg=%u fid=%u recovered=%llu bits=%llu erasures_before=%llu pn_locked_before=%d pn_checks=%llu reason=%s I=%.6f Q=%.6f evm=%.6f\n",r->cfg,r->fid,r->recovered,r->bits,r->erasures,r->pn_locked,r->pn_checks,reason,(double)i,(double)q,(double)r->evm);
 }
+static void qpsk_symbol(bpsk_decoder_t *r,float i,float q)
+{
+    r->wi[r->window_at]=i;r->wq[r->window_at]=q;
+    r->window_at=(r->window_at+1)%64;
+    if(r->window_n<64)r->window_n++;
+    r->recovered++;
+    r->sym_i[r->sym_at]=i;r->sym_q[r->sym_at]=q;
+    r->sym_at=(r->sym_at+1)%128;
+    if(r->sym_n<128)r->sym_n++;
+}
+
 static void process(bpsk_decoder_t *r,float complex input)
 {
     float complex out[16],symbols[2];unsigned n=0,ns=0;
@@ -68,6 +79,7 @@ static void process(bpsk_decoder_t *r,float complex input)
         for(unsigned k=0;k<ns;k++){
             float a=crealf(symbols[k]),b=cimagf(symbols[k]);
             if(!isfinite(a)||!isfinite(b)){r->locked=0;continue;}
+            if(r->order==4){qpsk_symbol(r,a,b);continue;}
             r->recovered++;r->wi[r->window_at]=a;r->wq[r->window_at]=b;r->window_at=(r->window_at+1)%64;if(r->window_n<64)r->window_n++;
             float error=0;int positive=0,transitions=0,last=0;
             for(int u=0;u<r->window_n;u++){
@@ -85,16 +97,17 @@ static void process(bpsk_decoder_t *r,float complex input)
         }
     }
 }
-void bpsk_push(bpsk_decoder_t *r,const v32_ana_view_t *v,int baud,int invert,int test)
+static void bpsk_receive(bpsk_decoder_t *r,const v32_ana_view_t *v,int baud,int invert,int test,int mode,int order)
 {
     invert=!!invert;test=!!test;
-    if(!v->valid || v->mode!=6 || v->kind!=0 || v->flags || v->nvalid!=256 || !v->decim || baud<=0){bpsk_reset(r);return;}
+    if(!v->valid || v->mode!=mode || v->kind!=0 || v->flags || v->nvalid!=256 || !v->decim || baud<=0){bpsk_reset(r);return;}
     double fs=65000000.0/v->decim;
     if(fs/baud<6 || fs/baud>256){bpsk_reset(r);return;}
-    int same=r->have_frame && r->cfg==v->cfg_id && r->fcw==v->fcw && r->decim==v->decim && r->channel==v->channel && r->baud==baud && r->invert==invert && r->test==test;
+    int same=r->have_frame && r->cfg==v->cfg_id && r->fcw==v->fcw && r->decim==v->decim && r->channel==v->channel && r->baud==baud && r->invert==invert && r->test==test && r->order==order;
     if(same && r->fid==v->frame_id)return;
     if(!same || (uint32_t)(v->frame_id-r->fid)!=1)bpsk_reset(r);
     r->have_frame=1;r->cfg=v->cfg_id;r->fid=v->frame_id;r->fcw=v->fcw;r->decim=v->decim;r->channel=v->channel;r->baud=baud;r->invert=invert;r->test=test;r->fs=fs;
+    r->order=order;
     float energy=0;
     for(int j=0;j<256;j++){
         if(!v->yvalid[j] || !isfinite(v->y[j]) || !isfinite(v->q[j])){bpsk_reset(r);return;}
@@ -102,22 +115,92 @@ void bpsk_push(bpsk_decoder_t *r,const v32_ana_view_t *v,int baud,int invert,int
     }
     if(energy/256<16){bpsk_reset(r);return;}
     if(!r->tracker){
-        r->tracker=symtrack_cccf_create(LIQUID_FIRFILT_RRC,4,7,.35f,LIQUID_MODEM_BPSK);
+        r->tracker=symtrack_cccf_create(LIQUID_FIRFILT_RRC,4,7,.35f,order==4?LIQUID_MODEM_QPSK:LIQUID_MODEM_BPSK);
         r->resampler=msresamp_crcf_create((float)(4*baud/fs),60.f);
         if(!r->tracker || !r->resampler){bpsk_reset(r);return;}
         symtrack_cccf_set_bandwidth((symtrack_cccf)r->tracker,.9f);
+        if(order==4)symtrack_cccf_set_eq_off((symtrack_cccf)r->tracker);
     }
     for(int j=0;j<256;j++){
         if(!r->coarse_ready){
             r->ci[r->used]=(int16_t)v->y[j];r->cq[r->used]=(int16_t)v->q[j];
             if(++r->used<1024)continue;
-            if(bpsk_coarse(r->ci,r->cq,1024,fs,baud,2,&r->step)){bpsk_reset(r);return;}
+            if(bpsk_coarse(r->ci,r->cq,1024,fs,baud,order,&r->step)){bpsk_reset(r);return;}
             double complex sum=0;
             for(int k=0;k<1024;k++){
-                double complex z=(r->ci[k]+_Complex_I*r->cq[k])*cexp(-_Complex_I*r->step*k);sum+=z*z;
+                double complex z=(r->ci[k]+_Complex_I*r->cq[k])*cexp(-_Complex_I*r->step*k);
+                z*=z;sum+=order==4?-z*z:z;
             }
-            r->phase=carg(sum)/2;r->cfo_hz=r->step*fs/(2*BPSK_PI);r->coarse_ready=1;
+            r->phase=carg(sum)/order;r->cfo_hz=r->step*fs/(2*BPSK_PI);r->coarse_ready=1;
             for(int k=0;k<1024;k++)process(r,(r->ci[k]+_Complex_I*r->cq[k])/2048.f);
         }else process(r,(v->y[j]+_Complex_I*v->q[j])/2048.f);
     }
+}
+
+void bpsk_push(bpsk_decoder_t *r,const v32_ana_view_t *v,int baud,int invert,int test)
+{
+    bpsk_receive(r,v,baud,invert,test,6,2);
+}
+
+void bpsk_probe_push(bpsk_decoder_t *r,const v32_ana_view_t *v,int baud)
+{
+    psk_probe_push(r,v,baud,2);
+}
+
+void psk_probe_push(bpsk_decoder_t *r,const v32_ana_view_t *v,int baud,int order)
+{
+    bpsk_receive(r,v,baud,0,0,4,order);
+    if(!r->coarse_ready)return;
+    if(order==4){
+        if(!r->window_n)return;
+        int occupancy[4]={0},transitions[2]={0,0};
+        float error=0.f;
+        int last=-1;
+        for(int k=0;k<r->window_n;k++){
+            const int at=(r->window_at-r->window_n+k+64)%64;
+            const float i=r->wi[at],q=r->wq[at];
+            const int quadrant=(i>=0)+2*(q>=0);
+            occupancy[quadrant]++;
+            if(k && quadrant!=last)transitions[k%2]++;
+            last=quadrant;
+            const float di=fabsf(i)-.70710678f,dq=fabsf(q)-.70710678f;
+            error+=di*di+dq*dq;
+        }
+        r->evm=sqrtf(error/r->window_n);
+        r->locked=r->recovered>=256 && r->sym_n==128 && r->evm<.23f &&
+            occupancy[0]>=5 && occupancy[1]>=5 && occupancy[2]>=5 && occupancy[3]>=5 &&
+            transitions[0]>=3 && transitions[1]>=3;
+        if(++r->probe_age>=192 && !r->locked)bpsk_reset(r);
+        return;
+    }
+    /* An antipodal waveform has one axis before decision-directed tracking.
+     * Squaring removes the sign, so this also screens FM/FSK and QPSK that
+     * can momentarily produce a low EVM inside a BPSK tracker. */
+    const float complex rot=cexpf(-_Complex_I*(float)(2*r->step));
+    float complex sum=0.f, rotation=1.f;
+    float energy=0.f;
+    for(int k=0;k<V32_ANA_POINTS;k++){
+        const float i=v->y[k],q=v->q[k];
+        sum+=rotation*((i*i-q*q)+_Complex_I*(2*i*q));
+        rotation*=rot;
+        energy+=i*i+q*q;
+    }
+    r->probe_axis=energy>0.f?cabsf(sum)/energy:0.f;
+    r->probe_age++;
+    r->probe_bad_axis=r->probe_axis<.82f?r->probe_bad_axis+1:0;
+    /* Live input can change while the FPGA echo stays identical. Reacquire
+     * from new samples after persistent loss of the axis or symbol lock. */
+    if(r->probe_bad_axis>=32 || (r->probe_age>=256 && !r->locked))bpsk_reset(r);
+}
+
+int bpsk_probe_qualified(const bpsk_decoder_t *r)
+{
+    if(!r->locked || r->sym_n!=128 || r->recent_n!=64 || r->evm>=.19f || r->probe_axis<.82f ||
+       strchr(r->recent,'?'))return 0;
+    /* A receiver at twice the symbol rate can recover each bit twice and
+     * still have low EVM. True transitions must occur on both parities. */
+    int transitions[2]={0,0};
+    for(int k=1;k<r->recent_n;k++)
+        transitions[k%2]+=r->recent[k]!=r->recent[k-1];
+    return transitions[0]>=2 && transitions[1]>=2;
 }
