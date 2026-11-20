@@ -66,6 +66,15 @@ static inline int mod_view_relative_phase(const float *src,int available,double 
     return count;
 }
 
+/* Dimensionless angle-modulation index: FM uses Δf/fm; PM uses Δφ in rad. */
+static inline double mod_view_angle_index(int mode,double deviation,double rate)
+{
+    if(!isfinite(deviation) || !isfinite(rate) || deviation<0. || rate<=0.)return NAN;
+    if(mode==2)return deviation/rate;
+    if(mode==7)return deviation*0.017453292519943295769;
+    return NAN;
+}
+
 /* Average measured points at the same position in recent modulation periods.
  * Keep the current time axis, and fall back if the record has a gap. */
 static inline int mod_view_average_periods(const float *src,int available,float *out,

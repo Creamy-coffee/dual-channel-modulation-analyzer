@@ -4032,6 +4032,8 @@ static void analysis_apply(int type, int ch, int rate)
     ook_reset(&s_ook);
     bpsk_reset(&s_bpsk);
     s_an_type = type; s_an_ch = ch; s_an_rate = rate;
+    if(s_lbl_moddecision_key)
+        lv_label_set_text(s_lbl_moddecision_key,(type==2 || type==7)?"调制指数":"调制度");
     if(!s_an_auto)mod_reference_restore_raw();
     s_an_retune_error=0;s_an_override=0;
     s_fm_span_outside=false;
@@ -6464,6 +6466,8 @@ static void mod_angle_wait(const v32_ana_view_t *av)
     lv_obj_set_style_text_color(s_lbl_mst,V32_C_WARN,0);
     lv_label_set_text(s_lbl_modvalue_key,av->mode==2u?"峰值频偏":"峰值相偏");
     lv_label_set_text(s_lbl_m4,"—");
+    lv_label_set_text(s_lbl_moddecision_key,"调制指数");
+    lv_label_set_text(s_lbl_m5,"--");
 }
 
 /* Try preset rates in series. Multiple concurrent receivers overrun the
@@ -7705,11 +7709,14 @@ static void tick_mod(void)
         } else if(av.kind == 2u) {
             /* FM deviation is the robust half-span around the signal's center. */
             lv_label_set_text(s_lbl_modvalue_key,"峰值频偏");
+            lv_label_set_text(s_lbl_moddecision_key,"调制指数");
             if(!fm) snprintf(b,sizeof b,"--");
             else if(fm_peak>=1000.f) snprintf(b,sizeof b,"%.2f kHz",(double)fm_peak/1e3);
             else snprintf(b,sizeof b,"%.1f Hz",(double)fm_peak);
             lv_label_set_text(s_lbl_m4,b);
-            lv_label_set_text(s_lbl_m5,"--");
+            const double beta=fit_fm?mod_view_angle_index(2,fm_peak,angle_rate):NAN;
+            if(isfinite(beta))lv_label_set_text_fmt(s_lbl_m5,"%.2f",beta);
+            else lv_label_set_text(s_lbl_m5,"--");
             if(fit_fm)lv_label_set_text_fmt(s_lbl_ook_info,"峰值相偏 %.2f deg",angle_phase_peak);
             else if(fm && angle_rate>0.){
                 const int count=mod_view_count(available,ana_fs,4000./angle_rate);
@@ -7777,9 +7784,17 @@ static void tick_mod(void)
                 if(!s_mod_compare)mod_axes(s_plot_modana,s_lbl_modana_note,(count-1)/ana_fs,source);
             }
             lv_label_set_text(s_lbl_modvalue_key,"峰值相偏");
-            const double peak=fit_pm?angle_phase_peak:(double)(measured_high-measured_low)*.5;
-            lv_label_set_text_fmt(s_lbl_m4,"%.1f deg",peak);
-            lv_label_set_text(s_lbl_m5,"--");
+            lv_label_set_text(s_lbl_moddecision_key,"调制指数");
+            const double peak=fit_pm?angle_phase_peak:NAN;
+            if(isfinite(peak))lv_label_set_text_fmt(s_lbl_m4,"%.1f deg",peak);
+            else lv_label_set_text(s_lbl_m4,"--");
+            const double beta=fit_pm?mod_view_angle_index(7,peak,angle_rate):NAN;
+            if(isfinite(beta))lv_label_set_text_fmt(s_lbl_m5,"%.2f",beta);
+            else lv_label_set_text(s_lbl_m5,"--");
+            if(!fit_pm){
+                lv_label_set_text(s_lbl_mst,"未锁定调制波形");
+                lv_obj_set_style_text_color(s_lbl_mst,V32_C_WARN,0);
+            }
             if(fit_pm)lv_label_set_text_fmt(s_lbl_ook_info,"峰值频偏 %.1f Hz",peak*angle_rate*3.141592653589793/180.);
             else if(level>0.f)lv_label_set_text_fmt(s_lbl_ook_info,"平台相偏 %.1f deg",(double)level);
             if(angle_rate>0.){
