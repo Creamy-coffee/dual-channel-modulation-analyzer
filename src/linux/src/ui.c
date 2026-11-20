@@ -6757,6 +6757,7 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
     const bool use_binary=auto_mod_should_show_binary(r.kind,r.tone_quality,r.modulation_hz,
                                                        ready,binary_votes,use_psk,
                                                        binary.fsk,binary.levels);
+    const bool multilevel_fsk=binary.fsk && binary.levels>=3;
     const enum angle_reference_kind ref_kind=mod_auto_reference(av,
         kind==AUTO_MOD_ANGLE && !use_binary && !use_psk,r.modulation_hz);
     lv_label_set_text(s_lbl_mst,!ready?"等待数据":identified?"分析有效":"信号已接收");
@@ -6896,7 +6897,10 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
                 plot_hide_trace(s_plot_modraw,0);
                 lv_label_set_text(s_lbl_modraw_units,"--");
             }
-            lv_label_set_text(s_lbl_modraw_title,binary.fsk?"2FSK | Measured frequency":"OOK | Measured envelope");
+            lv_label_set_text(s_lbl_modraw_title,binary.fsk?
+                (multilevel_fsk?(binary.levels==3?"3FSK | Measured frequency":"4FSK | Measured frequency"):
+                                "2FSK | Measured frequency"):
+                "OOK | Measured envelope");
             mod_axes(s_plot_modraw,s_lbl_rawnote,duration,"I/Q");
         }
 
@@ -6904,16 +6908,33 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
         for(int k=0;k<PLOT_MAX_PTS;k++){
             const float t=start+(end-start)*k/(PLOT_MAX_PTS-1);
             while(bit+1<binary.bit_count && t>=binary.edges[bit+1])bit++;
-            trace[k]=binary.fsk?(binary.bits[bit]=='1'?1.35f/1.70f:.35f/1.70f):
-                                (binary.bits[bit]=='1'?.78f:.22f);
+            if(binary.fsk){
+                const int state=binary.bits[bit]-'0';
+                const int levels=binary.levels>1?binary.levels:2;
+                trace[k]=.35f+1.0f*(float)state/(float)(levels-1);
+            }else trace[k]=binary.bits[bit]=='1'?.78f:.22f;
         }
         plot_set_trace(s_plot_modana,0,trace,PLOT_MAX_PTS,V32_C_MATH,2);
-        lv_label_set_text(s_lbl_modana_title,binary.fsk?"2FSK | Decision reference":"OOK | Symbol decisions");
-        if(binary.fsk)
+        lv_label_set_text(s_lbl_modana_title,binary.fsk?
+            (multilevel_fsk?(binary.levels==3?"3FSK | Symbol decisions":"4FSK | Symbol decisions"):
+                            "2FSK | Decision reference"):
+            "OOK | Symbol decisions");
+        if(multilevel_fsk && binary.levels==3)
+            lv_label_set_text_fmt(s_lbl_modana_units,"0..2: %.0f / %.0f / %.0f Hz",
+                                  (double)av->center_hz+binary.centers[0],
+                                  (double)av->center_hz+binary.centers[1],
+                                  (double)av->center_hz+binary.centers[2]);
+        else if(multilevel_fsk)
+            lv_label_set_text_fmt(s_lbl_modana_units,"0..3: %.0f / %.0f / %.0f / %.0f Hz",
+                                  (double)av->center_hz+binary.centers[0],
+                                  (double)av->center_hz+binary.centers[1],
+                                  (double)av->center_hz+binary.centers[2],
+                                  (double)av->center_hz+binary.centers[3]);
+        else if(binary.fsk)
             lv_label_set_text_fmt(s_lbl_modana_units,"0: %.0f Hz   1: %.0f Hz",
                                   (double)av->center_hz+binary.low,(double)av->center_hz+binary.high);
         else lv_label_set_text(s_lbl_modana_units,"0: off   1: on");
-        mod_axes(s_plot_modana,s_lbl_modana_note,duration,"Bits");
+        mod_axes(s_plot_modana,s_lbl_modana_note,duration,multilevel_fsk?"Symbols":"Bits");
         return;
     }
 

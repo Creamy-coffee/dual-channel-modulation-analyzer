@@ -121,6 +121,11 @@ static void check(enum signal_kind test)
         assert(digital.ask==(test==SIG_ASK));
         assert(digital.levels==(test==SIG_FSK3?3:test==SIG_FSK4?4:2));
         assert(digital.bit_count>=8);
+        if(digital.fsk){
+            assert(digital.centers[0]<digital.centers[1]);
+            if(digital.levels>=3)assert(digital.centers[1]<digital.centers[2]);
+            if(digital.levels>=4)assert(digital.centers[2]<digital.centers[3]);
+        }
         assert(auto_mod_should_show_binary(analog.kind,analog.tone_quality,
                                             analog.modulation_hz,1,3,0,
                                             digital.fsk,digital.levels));

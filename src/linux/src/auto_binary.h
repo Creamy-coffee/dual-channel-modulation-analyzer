@@ -10,6 +10,7 @@ typedef struct {
     int baud, fsk, ask, levels;
     int bit_count;
     float edges[33], sample_hz, low, high;
+    float centers[4];
     char bits[33];
 } auto_binary_result_t;
 
@@ -124,6 +125,7 @@ static inline auto_binary_result_t auto_binary_fsk_levels(const float *x, int n,
             }
             result.baud=best_baud;result.fsk=1;result.levels=want;result.sample_hz=fs;
             result.low=center[0];result.high=center[want-1];result.bit_count=written;
+            for(int j=0;j<want;j++)result.centers[j]=center[j];
             for(int k=0;k<written/2;k++){char c=result.bits[k];result.bits[k]=result.bits[written-1-k];result.bits[written-1-k]=c;}
             for(int k=0;k<(written+1)/2;k++){float e=result.edges[k];result.edges[k]=result.edges[written-k];result.edges[written-k]=e;}
             const float model_score=fit_ratio+.20f*best_score;
@@ -231,6 +233,8 @@ static inline auto_binary_result_t auto_binary_levels(const float *x, int n, flo
             result.high=(float)(sum[1]/used[1]);
         }
     }
+    result.centers[0]=result.low;
+    result.centers[1]=result.high;
     int written=0;
     int run_end=edge;
     result.edges[0]=(float)run_end;
