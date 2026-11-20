@@ -135,6 +135,19 @@ SPEC 频谱帧（2096 B）、MEAS 测量帧（128 B）、ANA 调制帧（1076 B�
 - Linux：按 [复现指南](report/reproduce.md) 构建及部署。
 - 验证：运行 `bash sim/run_rtl_sim.sh` 和 `python skill/self_test.py`。
 
+### PC 控制台：抓屏与下载板端波形
+
+Windows 上连接 RK3506 的 ADB 后，双击 [start_control.cmd](src/pc/image_sender/start_control.cmd) 即可启动。也可以在 PowerShell 中设置 ADB 路径及设备 serial：
+
+```powershell
+$env:V32_ADB = 'C:\path\to\platform-tools\adb.exe'  # 若 adb 已在 PATH，可省略
+$env:V32_ADB_SERIAL = '板端 adb serial'                 # 多设备时填写；默认使用当前实验屏的 serial
+Set-Location src/pc/image_sender
+.\start_control.cmd
+```
+
+浏览器打开 `http://127.0.0.1:8770/`。服务默认只监听本机。在“屏幕截图”页获取并保存 PNG；在“板端波形文件”页扫描 `/userdata`、`/tmp` 和已挂载的 `/mnt/udisk`，再把选中的原始文件下载到 PC。下载只读板端文件，单文件上限 256 MiB。截图和文件扫描/下载均通过已连接的 ADB 设备执行；关闭控制台请按 `Ctrl+C`。
+
 ## 已知边界
 
 ### 使用条件

@@ -1,16 +1,107 @@
-"""Local unified control; reuses image sender lease, protocol and restoration."""
-import base64,io,json,math,os,socket,subprocess,time,threading,webbrowser
+"""Local unified control for the generator, RK3506 screen and stored captures."""
+import base64,json,math,mimetypes,os,re,secrets,shlex,shutil,socket,subprocess,time,threading,webbrowser,zlib,struct
 from pathlib import Path
 from http.server import ThreadingHTTPServer
+from urllib.parse import quote
 import server as sender
 from instrument import Visa
+from tempfile import TemporaryDirectory
 
-ADB=Path('D:/软件/微信/all_users/head_imgs/0/微信web开发者工具/bin/adb-win/adb.exe')
+def find_adb():
+    override=os.environ.get('V32_ADB')
+    if override:return Path(override)
+    located=shutil.which('adb')
+    if located:return Path(located)
+    roots=[os.environ.get('ANDROID_SDK_ROOT'),os.environ.get('ANDROID_HOME'),
+           os.environ.get('LOCALAPPDATA') and str(Path(os.environ['LOCALAPPDATA'])/'Android'/'Sdk')]
+    roots.extend((str(Path.home()/'adb-tools'),str(Path.home()/'AppData'/'Local'/'Android'/'Sdk')))
+    for root in roots:
+        if root:
+            candidate=Path(root)/'platform-tools'/'adb.exe'
+            if candidate.is_file():return candidate
+    return Path('adb')
+ADB=find_adb()
+ADB_SERIAL=os.environ.get('V32_ADB_SERIAL','6ed3ab1135df1ef9')
 SCREEN_LOCK=threading.Lock()
-def adb(*args):
-    r=subprocess.run([str(ADB),'-s','6ed3ab1135df1ef9',*args],capture_output=True,timeout=15)
+WAVEFORM_LOCK=threading.Lock()
+WAVEFORM_CACHE={}
+WAVEFORM_ROOTS=('/userdata','/tmp','/mnt/udisk')
+WAVEFORM_EXTENSIONS=('.bin','.raw','.csv','.wav','.wfm','.json','.jsonl')
+WAVEFORM_LIMIT=1000
+WAVEFORM_MAX_DOWNLOAD=256*1024*1024
+def adb(*args,timeout=15):
+    r=subprocess.run([str(ADB),'-s',ADB_SERIAL,*args],capture_output=True,timeout=timeout)
     if r.returncode:raise RuntimeError(r.stderr.decode(errors='replace') or r.stdout.decode(errors='replace'))
     return r.stdout
+
+WAVEFORM_FIND=(
+    "find /userdata /tmp /mnt/udisk -maxdepth 8 -type f "
+    "\\( -iname '*.bin' -o -iname '*.raw' -o -iname '*.csv' -o "
+    "-iname '*.wav' -o -iname '*.wfm' -o -iname '*.json' -o -iname '*.jsonl' \\) "
+    "-print 2>/dev/null | head -n 1001 | while IFS= read -r file; do "
+    "size=$(wc -c < \"$file\" 2>/dev/null) || continue; "
+    "encoded=$(printf '%s' \"$file\" | base64 | tr -d '\\r\\n') || continue; "
+    "printf '%s\\t%s\\n' \"$size\" \"$encoded\"; done"
+)
+
+def list_waveform_files():
+    """List existing capture-like files without accepting a caller-supplied path."""
+    output=adb('shell',WAVEFORM_FIND,timeout=60).decode('utf-8','replace')
+    entries=[]
+    cache={}
+    records=output.splitlines()
+    truncated=len(records)>WAVEFORM_LIMIT
+    for line in records[:WAVEFORM_LIMIT]:
+        try:
+            size_text,encoded_path=line.split('\t',1)
+            size=int(size_text.strip())
+            path=base64.b64decode(encoded_path,validate=True).decode('utf-8')
+        except (ValueError,TypeError,UnicodeDecodeError):continue
+        if size<0 or any(ord(char)<32 for char in path):continue
+        if not any(path.startswith(root+'/') for root in WAVEFORM_ROOTS):continue
+        if any(part in ('','.','..') for part in path.split('/')[1:]):continue
+        if not path.lower().endswith(WAVEFORM_EXTENSIONS):continue
+        file_id=secrets.token_urlsafe(12)
+        cache[file_id]={'path':path,'size':size,'name':path.rsplit('/',1)[-1]}
+        entries.append({'id':file_id,'path':path,'name':cache[file_id]['name'],'size':size})
+    entries.sort(key=lambda item:item['path'].lower())
+    with WAVEFORM_LOCK:WAVEFORM_CACHE.clear();WAVEFORM_CACHE.update(cache)
+    return {'files':entries,'count':len(entries),'roots':list(WAVEFORM_ROOTS),'truncated':truncated}
+
+def _waveform_entry(file_id):
+    if not isinstance(file_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{12,32}',file_id):
+        raise ValueError('文件编号无效，请刷新文件列表')
+    with WAVEFORM_LOCK:entry=WAVEFORM_CACHE.get(file_id)
+    if not entry:raise ValueError('文件列表已过期，请刷新后重试')
+    return dict(entry)
+
+def send_waveform_file(handler,file_id):
+    entry=_waveform_entry(file_id)
+    path=entry['path'];size=entry['size'];name=entry['name']
+    if size>WAVEFORM_MAX_DOWNLOAD:raise ValueError('文件超过 256 MiB 下载上限')
+    current=adb('shell',f'wc -c < {shlex.quote(path)}').decode().strip()
+    if not current.isdigit() or int(current)!=size:raise RuntimeError('板端文件大小已变化，请刷新文件列表')
+    with TemporaryDirectory(prefix='rk3506-waveform-') as directory:
+        local_path=Path(directory)/'capture'
+        result=subprocess.run([str(ADB),'-s',ADB_SERIAL,'pull',path,str(local_path)],
+                              capture_output=True,timeout=300)
+        if result.returncode:
+            raise RuntimeError(result.stderr.decode('utf-8','replace').strip() or 'ADB 下载失败')
+        if not local_path.is_file() or local_path.stat().st_size!=size:
+            raise RuntimeError('下载后的文件大小校验失败')
+        handler.send_response(200)
+        handler.send_header('Content-Type',mimetypes.guess_type(name)[0] or 'application/octet-stream')
+        handler.send_header('Content-Length',str(size))
+        handler.send_header('Content-Disposition',f"attachment; filename*=UTF-8''{quote(name,safe='')}")
+        handler.send_header('Cache-Control','no-store')
+        handler.send_header('X-Content-Type-Options','nosniff')
+        handler.end_headers()
+        with local_path.open('rb') as source:
+            while True:
+                block=source.read(1024*1024)
+                if not block:break
+                try:handler.wfile.write(block)
+                except (BrokenPipeError,ConnectionResetError):break
 def number(req,key,low,high):
     x=float(req[key])
     if not math.isfinite(x) or not low<=x<=high:raise ValueError(f'{key}应在{low}..{high}之间')
@@ -166,8 +257,40 @@ def mode_apply(req):
     out['label']=m['label']
     return out
 
+def _ppm_to_png(data):
+    if not data.startswith(b'P6'):
+        raise ValueError('屏端返回的不是 P6 PPM 图像')
+    pos=2
+    def token():
+        nonlocal pos
+        while pos<len(data):
+            if data[pos] in b' \t\r\n':pos+=1;continue
+            if data[pos]==ord('#'):
+                end=data.find(b'\n',pos)
+                if end<0:raise ValueError('PPM 注释不完整')
+                pos=end+1;continue
+            break
+        start=pos
+        while pos<len(data) and data[pos] not in b' \t\r\n#':pos+=1
+        if start==pos:raise ValueError('PPM 文件头不完整')
+        try:return int(data[start:pos])
+        except ValueError as exc:raise ValueError('PPM 文件头格式错误') from exc
+    width=token();height=token();maximum=token()
+    if not 0<width<=8192 or not 0<height<=8192 or width*height>16*1024*1024 or maximum!=255:
+        raise ValueError('PPM 尺寸或色深不受支持')
+    if pos>=len(data) or data[pos] not in b' \t\r\n':raise ValueError('PPM 像素数据分隔符缺失')
+    if data[pos:pos+2]==b'\r\n':pos+=2
+    else:pos+=1
+    expected=width*height*3
+    if len(data)-pos!=expected:raise ValueError(f'PPM 像素数据长度错误：期望 {expected}，得到 {len(data)-pos}')
+    rows=b''.join(b'\x00'+data[pos+y*width*3:pos+(y+1)*width*3] for y in range(height))
+    def chunk(kind,payload):
+        body=kind+payload
+        return struct.pack('!I',len(payload))+body+struct.pack('!I',zlib.crc32(body)&0xffffffff)
+    ihdr=struct.pack('!IIBBBBB',width,height,8,2,0,0,0)
+    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',ihdr)+chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b'')
+
 def screenshot():
-    from PIL import Image
     with SCREEN_LOCK:
         pid=adb('shell','pidof waveform_demo').decode().split()
         if len(pid)!=1 or not pid[0].isdigit():raise RuntimeError('屏幕程序必须只有一个实例')
@@ -177,8 +300,8 @@ def screenshot():
             time.sleep(.1)
         else:raise RuntimeError('屏幕截图超时，请检查屏端程序')
         data=adb('exec-out','cat /tmp/wave_frame.ppm')
-        im=Image.open(io.BytesIO(data));im.load();out=io.BytesIO();im.save(out,format='PNG')
-        return dict(image='data:image/png;base64,'+base64.b64encode(out.getvalue()).decode())
+        png=_ppm_to_png(data)
+        return dict(image='data:image/png;base64,'+base64.b64encode(png).decode())
 class Handler(sender.Handler):
     def do_GET(self):
         if self.path=='/api/session':
@@ -201,7 +324,8 @@ class Handler(sender.Handler):
         else:super().do_GET()
     def do_POST(self):
         if self.path not in ('/api/generator/read','/api/generator/apply','/api/screen',
-                             '/api/scene/apply','/api/mode/apply','/api/scene/quiet'):
+                             '/api/scene/apply','/api/mode/apply','/api/scene/quiet',
+                             '/api/waveforms/list','/api/waveforms/download'):
             return super().do_POST()
         if self.headers.get('X-Session-Token')!=sender.TOKEN:return self.reply({'error':'Invalid session'},403)
         try:
@@ -210,6 +334,11 @@ class Handler(sender.Handler):
             req=json.loads(self.rfile.read(n))
             if self.path=='/api/screen':
                 result=screenshot()
+            elif self.path=='/api/waveforms/list':
+                result=list_waveform_files()
+            elif self.path=='/api/waveforms/download':
+                send_waveform_file(self,req.get('id'))
+                return
             elif self.path=='/api/scene/apply':
                 result=scene_apply(req)
             elif self.path=='/api/mode/apply':
@@ -228,27 +357,27 @@ def friendly_error(e):
     if 'VISA status -0x4000ffef' in msg or 'VISA status' in msg and '找不到' not in msg:
         return ('信号发生器未连接电脑（USB 已断开）。'
                 '请把发生器的 USB 线插回电脑，或按「手动操作卡」在仪器面板上直接设参数。')
-    if 'adb' in msg or 'device' in msg and 'not found' in msg:
+    if 'adb' in msg.lower() or 'device' in msg.lower() and 'not found' in msg.lower():
         return ('屏端未连接电脑（USB 已断开）。抓屏功能不可用，但发生器控制不受影响。')
     if '发生器正在执行任务' in msg:
         return msg+'（图片发送进行中，等它结束或点「停止」）'
     return msg
 if __name__=='__main__':
-    # 监听地址默认 0.0.0.0，手机通过热点 IP 也能访问；
-    # 用 V32_BIND=127.0.0.1 可退回「仅本机」。
-    bind=os.environ.get('V32_BIND','0.0.0.0')
+    # 默认只供本机浏览器使用；需要局域网访问时由用户显式设置绑定地址。
+    bind=os.environ.get('V32_BIND','127.0.0.1')
     port=int(os.environ.get('V32_PORT','8770'))
     url=f'http://127.0.0.1:{port}/'
     http=ThreadingHTTPServer((bind,port),Handler)
     http.daemon_threads=True
     print('控制台 '+url,flush=True)
-    # 列出本机可用的局域网/热点地址，手机直接输入其中之一
-    try:
-        s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        s.connect(('8.8.8.8',80));lan=s.getsockname()[0];s.close()
-        print(f'手机访问 http://{lan}:{port}/',flush=True)
-    except Exception:
-        pass
+    # 只有用户显式配置外部监听时，才显示局域网访问地址。
+    if bind not in ('127.0.0.1','localhost','::1'):
+        try:
+            s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8',80));lan=s.getsockname()[0];s.close()
+            print(f'局域网访问 http://{lan}:{port}/',flush=True)
+        except Exception:
+            pass
     webbrowser.open(url)
     try:http.serve_forever()
     except KeyboardInterrupt:sender.STOP.set()
