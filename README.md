@@ -148,6 +148,10 @@ Set-Location src/pc/image_sender
 
 浏览器打开 `http://127.0.0.1:8770/`。服务默认只监听本机。在“屏幕截图”页获取并保存 PNG；在“板端波形文件”页扫描 `/userdata`、`/tmp` 和已挂载的 `/mnt/udisk`，再把选中的原始文件下载到 PC。下载只读板端文件，单文件上限 256 MiB。截图和文件扫描/下载均通过已连接的 ADB 设备执行；关闭控制台请按 `Ctrl+C`。
 
+屏端 History 与文件列表中的其他抓包是两回事：History 是屏端 RAM 中有限容量的环形记录，每条都是单独收到的 RAW 帧，不代表帧间连续采样；在屏上选中记录后按 `CSV`，才会导出该帧的原始 ADC 码到 `/tmp/scope_history.csv`。文件列表会把它单独标记为“示波器 History 导出”；其他 `raw.bin`、`frames.jsonl`、`health.jsonl`、`summary.json` 多为串口诊断采集及其解析/统计记录。
+
+电脑端 VOFA+ 实时看波形使用根目录的 `启动VOFA实时接收.cmd`，屏幕 USB 调试线需连接电脑且屏端接收程序正在运行。VOFA+ 选择 FireWater / TCP 客户端，服务器 `127.0.0.1`、端口 `8771`，握手数据留空；8770 是上面的控制台网页。VOFA 实时样点转发不会生成历史下载文件。
+
 ## 已知边界
 
 ### 使用条件

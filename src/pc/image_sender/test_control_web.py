@@ -22,9 +22,12 @@ class Checks(unittest.TestCase):
             with patch.object(c.sender,'HOME',Path(__file__).parent):
                 with urllib.request.urlopen(base+'/') as r:
                     page=r.read().decode()
-                    self.assertIn('板端波形文件',page)
-                    self.assertIn('/api/waveforms/download',page)
-                    self.assertNotIn('__TOKEN__',page)
+                self.assertIn('板端波形文件',page)
+                self.assertIn('/api/waveforms/download',page)
+                self.assertIn('127.0.0.1',page)
+                self.assertIn('8771',page)
+                self.assertIn('示波器 History 导出',page)
+                self.assertNotIn('__TOKEN__',page)
             with urllib.request.urlopen(base+'/api/session') as r:self.assertEqual(json.load(r)['token'],c.sender.TOKEN)
             with tempfile.TemporaryDirectory() as directory:
                 (Path(directory)/'AI_API_GUIDE.md').write_text('AI 使用指南',encoding='utf-8')
@@ -61,16 +64,23 @@ class Checks(unittest.TestCase):
                 with self.assertRaises(RuntimeError):c.generator({})
         self.assertFalse(c.sender.STATE['busy'])
     def test_waveform_scan_accepts_unicode_names_and_rejects_untrusted_paths(self):
-        paths=[('/userdata/captures/带 空格.raw',4),('/data/private.raw',1),
+        paths=[('/userdata/captures/带 空格.raw',4),('/tmp/scope_history.csv',10),
+               ('/userdata/qpsk/raw.bin',30),('/userdata/qpsk/frames.jsonl',20),
+               ('/data/private.raw',1),
                ('/userdata/../tmp/escape.raw',1),('/userdata/readme.txt',3)]
         output=''.join(f'{size}\t{base64.b64encode(path.encode()).decode()}\n' for path,size in paths).encode()
         with patch.object(c,'adb',return_value=output) as adb:
             result=c.list_waveform_files()
         adb.assert_called_once_with('shell',c.WAVEFORM_FIND,timeout=60)
-        self.assertEqual(result['count'],1)
-        self.assertEqual(result['files'][0]['path'],'/userdata/captures/带 空格.raw')
-        self.assertEqual(result['files'][0]['size'],4)
-        self.assertEqual(c._waveform_entry(result['files'][0]['id'])['path'],'/userdata/captures/带 空格.raw')
+        self.assertEqual(result['count'],4)
+        self.assertEqual(result['files'][0]['path'],'/tmp/scope_history.csv')
+        self.assertEqual(result['files'][0]['category'],'示波器 History 导出')
+        raw=next(item for item in result['files'] if item['path']=='/userdata/qpsk/raw.bin')
+        frames=next(item for item in result['files'] if item['path']=='/userdata/qpsk/frames.jsonl')
+        self.assertEqual(raw['category'],'串口原始抓包')
+        self.assertEqual(frames['category'],'帧解析日志')
+        self.assertEqual(raw['description'],'AB5/V32CAP3 接收的原始串口字节，通常与同目录日志配套')
+        self.assertEqual(c._waveform_entry(raw['id'])['path'],'/userdata/qpsk/raw.bin')
     def test_waveform_scan_reports_truncated_results(self):
         output=''.join(f'1\t{base64.b64encode(f"/tmp/{i}.raw".encode()).decode()}\n' for i in range(c.WAVEFORM_LIMIT+1)).encode()
         with patch.object(c,'adb',return_value=output):result=c.list_waveform_files()

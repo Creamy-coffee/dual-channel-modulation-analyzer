@@ -61,10 +61,45 @@ def list_waveform_files():
         if not any(path.startswith(root+'/') for root in WAVEFORM_ROOTS):continue
         if any(part in ('','.','..') for part in path.split('/')[1:]):continue
         if not path.lower().endswith(WAVEFORM_EXTENSIONS):continue
+        name=path.rsplit('/',1)[-1]
+        if path=='/tmp/scope_history.csv':
+            category='示波器 History 导出'
+            description='屏端 History 页点 CSV 保存的单条原始采集记录'
+            priority=0
+        elif name=='raw.bin' and '/' in path[1:]:
+            category='串口原始抓包'
+            description='AB5/V32CAP3 接收的原始串口字节，通常与同目录日志配套'
+            priority=1
+        elif name=='frames.jsonl':
+            category='帧解析日志'
+            description='逐帧记录 CRC、帧类型与接收顺序等信息'
+            priority=1
+        elif name=='health.jsonl':
+            category='链路健康日志'
+            description='按时间统计吞吐、有效帧、CRC 错误与丢弃字节'
+            priority=1
+        elif name=='summary.json':
+            category='抓包摘要'
+            description='同目录串口采集的总时长、字节数与帧统计'
+            priority=1
+        elif path.startswith('/tmp/'):
+            category='临时实验采样'
+            description='算法验证或诊断用的临时采样文件，不是 History 页面导出'
+            priority=2
+        elif path.startswith('/userdata/'):
+            category='板端测试数据'
+            description='板上实验或诊断文件；请结合文件名及同目录记录判断'
+            priority=3
+        else:
+            category='采集/测试文件'
+            description='保存于已挂载的外部存储'
+            priority=4
         file_id=secrets.token_urlsafe(12)
-        cache[file_id]={'path':path,'size':size,'name':path.rsplit('/',1)[-1]}
-        entries.append({'id':file_id,'path':path,'name':cache[file_id]['name'],'size':size})
-    entries.sort(key=lambda item:item['path'].lower())
+        cache[file_id]={'path':path,'size':size,'name':name}
+        entries.append({'id':file_id,'path':path,'name':name,'size':size,
+                        'category':category,'description':description,'priority':priority})
+    entries.sort(key=lambda item:(item['priority'],item['path'].lower()))
+    for item in entries:item.pop('priority')
     with WAVEFORM_LOCK:WAVEFORM_CACHE.clear();WAVEFORM_CACHE.update(cache)
     return {'files':entries,'count':len(entries),'roots':list(WAVEFORM_ROOTS),'truncated':truncated}
 
