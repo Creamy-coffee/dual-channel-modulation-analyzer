@@ -241,6 +241,7 @@ static lv_obj_t *s_chip_bpsk_inv,*s_chip_bpsk_view;
 static bool s_ook_on=true,s_ook_test=false;
 static unsigned s_ook_rate=3;
 static const int OOK_RATES[5]={100,250,500,1000,2000};
+static const int AUTO_BINARY_RATES[10]={100,250,500,1000,1500,2000,2500,3000,3500,4000};
 static lv_obj_t *s_chip_mv, *s_chip_mw;
 static bool s_mod_raw_view = false;
 static bool s_mod_compare = false;
@@ -6654,6 +6655,7 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
     static auto_binary_result_t binary;
     static float binary_features[AUTO_BINARY_SAMPLES];
     static int binary_votes;
+    static bool digital_phase_steps;
     static float am_depth[5],am_rate;
     static unsigned am_count,am_at;
     static uint32_t am_cfg,am_fid;
@@ -6706,6 +6708,7 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
             }
         }
         auto_mod_refine_tone(&r,i,q,n,fs);
+        digital_phase_steps=auto_mod_has_phase_steps(i,q,n,fs);
         if(consecutive && previous_cfg==av->cfg_id && previous_kind!=r.kind)
             search_start=auto_now;
         if(r.kind==AUTO_MOD_AM && r.tone_quality>=AUTO_MOD_AM_FIT_MIN){
@@ -6726,7 +6729,7 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
             }
             r.depth_pct=sorted[am_count/2];
         }else am_count=0;
-        const auto_binary_result_t next=auto_binary_analyze(i,q,n,fs,OOK_RATES,5,binary_features);
+        const auto_binary_result_t next=auto_binary_analyze(i,q,n,fs,AUTO_BINARY_RATES,10,binary_features);
         if(next.baud && next.baud==binary.baud && next.fsk==binary.fsk &&
            next.ask==binary.ask && next.levels==binary.levels && previous_cfg==av->cfg_id){
             if(binary_votes<3)binary_votes++;
@@ -6745,11 +6748,15 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
     const bool identified=kind==AUTO_MOD_AM || kind==AUTO_MOD_ANGLE;
     /* A coherent analog trajectory can also form apparent symbol clusters. */
     const bool coherent_am=kind==AUTO_MOD_AM && r.tone_quality>=AUTO_MOD_AM_FIT_MIN;
-    const bool coherent_angle=kind==AUTO_MOD_ANGLE && r.tone_quality>=.85f && r.modulation_hz>0.f;
+    const bool coherent_angle=kind==AUTO_MOD_ANGLE && r.tone_quality>=.85f && r.modulation_hz>0.f && !digital_phase_steps;
     const bool use_psk=ready && psk && !coherent_am && !coherent_angle;
     /* A stable baud/level fit is stronger evidence of ASK/FSK than a
      * provisional analog envelope or discriminator tone. */
-    const bool use_binary=ready && binary_votes>=3 && !use_psk;
+    /* Gate on the current analog fit even before its three-frame display vote;
+     * otherwise the previous digital hypothesis can leak into an FM update. */
+    const bool use_binary=auto_mod_should_show_binary(r.kind,r.tone_quality,r.modulation_hz,
+                                                       ready,binary_votes,use_psk,
+                                                       binary.fsk,binary.levels);
     const enum angle_reference_kind ref_kind=mod_auto_reference(av,
         kind==AUTO_MOD_ANGLE && !use_binary && !use_psk,r.modulation_hz);
     lv_label_set_text(s_lbl_mst,!ready?"等待数据":identified?"分析有效":"信号已接收");
@@ -6833,10 +6840,9 @@ static void mod_draw_auto(const v32_ana_view_t *av,bool ready,const bpsk_decoder
         const uint32_t now=lv_tick_get();
         if(now-last_probe_log>=1000){
             last_probe_log=now;
-            const bpsk_decoder_t *r=psk;
             fprintf(stderr,"[auto-bpsk] fid=%u probe_fid=%u kind=%d binary=%d selected=%d recovered=%llu axis=%.2f evm=%.2f\n",
-                    av->frame_id,r?r->fid:0,kind,binary_votes,r?r->baud:0,r?r->recovered:0,
-                    r?(double)r->probe_axis:0.,r?(double)r->evm:0.);
+                    av->frame_id,psk?psk->fid:0,kind,binary_votes,psk?psk->baud:0,
+                    psk?psk->recovered:0,psk?(double)psk->probe_axis:0.,psk?(double)psk->evm:0.);
         }
     }
     if(use_psk){

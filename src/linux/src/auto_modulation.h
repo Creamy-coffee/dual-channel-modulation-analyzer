@@ -4,6 +4,47 @@
 
 enum auto_mod_kind { AUTO_MOD_WAIT, AUTO_MOD_CARRIER, AUTO_MOD_AM, AUTO_MOD_ANGLE };
 
+static inline int auto_mod_should_show_binary(enum auto_mod_kind kind,float tone_quality,
+                                               float modulation_hz,int ready,
+                                               unsigned votes,int use_psk,
+                                               int binary_fsk,int binary_levels)
+{
+    const int coherent_angle=kind==AUTO_MOD_ANGLE && tone_quality>=.85f && modulation_hz>0.f;
+    /* Continuous-phase MFSK can also look like a clean periodic angle tone.
+     * A stable 3/4-level frequency fit is stronger evidence than that tone
+     * fit; keep the analog guard for two-level and non-FSK candidates. */
+    const int multilevel_fsk=binary_fsk && binary_levels>=3;
+    return ready && votes>=3 && !use_psk && (!coherent_angle || multilevel_fsk);
+}
+
+static inline int auto_mod_has_phase_steps(const float *i,const float *q,int n,float fs)
+{
+    if(n<64 || !(fs>0.f))return 0;
+    int valid=0,steps=0;
+    float peak=0.f;
+    for(int k=0;k<n;k++)peak=fmaxf(peak,hypotf(i[k],q[k]));
+    const float gate=fmaxf(2.f,peak*.08f);
+    for(int k=2;k+1<n;k++){
+        if(hypotf(i[k-2],q[k-2])<gate || hypotf(i[k-1],q[k-1])<gate ||
+           hypotf(i[k],q[k])<gate || hypotf(i[k+1],q[k+1])<gate)continue;
+        const float dot0=i[k-2]*i[k-1]+q[k-2]*q[k-1];
+        const float cross0=q[k-1]*i[k-2]-i[k-1]*q[k-2];
+        const float dot1=i[k-1]*i[k]+q[k-1]*q[k];
+        const float cross1=q[k]*i[k-1]-i[k]*q[k-1];
+        const float dot2=i[k]*i[k+1]+q[k]*q[k+1];
+        const float cross2=q[k+1]*i[k]-i[k+1]*q[k];
+        const float before=atan2f(cross0,dot0),center=atan2f(cross1,dot1),after=atan2f(cross2,dot2);
+        const float baseline=before+.5f*remainderf(after-before,6.28318530718f);
+        const float impulse=fabsf(remainderf(center-baseline,6.28318530718f));
+        /* A smooth angle-modulated phase increment stays near the linear
+         * interpolation of its neighbors. PSK impulses and abrupt FSK tone
+         * transitions produce larger local curvature. */
+        if(impulse>.30f)steps++;
+        valid++;
+    }
+    return valid>=16 && steps*100>=valid;
+}
+
 typedef struct {
     float amplitude_mean, frequency_mean, amplitude_pp, frequency_pp;
     float trace_fs, modulation_hz, depth_pct, deviation_hz, phase_deviation_deg;
@@ -284,6 +325,14 @@ static inline void auto_mod_refine_tone(auto_mod_result_t *r,const float *i,cons
 {
     const int am=r->kind==AUTO_MOD_AM;
     if((!am && r->kind!=AUTO_MOD_ANGLE) || r->modulation_hz<=0.f)return;
+    /* A periodic digital phase code can create a strong spectral line in the
+     * frequency discriminator. Abrupt carrier-phase steps identify that
+     * trajectory as PSK rather than coherent FM/PM. */
+    if(!am && auto_mod_has_phase_steps(i,q,n,fs)){
+        r->kind=AUTO_MOD_WAIT;
+        r->tone_quality=0.f;
+        return;
+    }
     const double initial=r->modulation_hz;
     const int interval=auto_mod_angle_interval(r,fs);
     int count=(int)ceil((am || interval==4?12.:5.)*fs/initial);
